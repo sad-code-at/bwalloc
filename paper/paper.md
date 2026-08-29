@@ -471,7 +471,7 @@ second demonstration of §4.
 
 ---
 
-## 8. A negative result on coverage, and its repair
+## 9. A negative result on coverage, and its repair
 
 Enforcing the ±2% coverage check on real backtest output rather than synthetic data:
 **249 of 360 configurations fail, 232 of them by under-covering; of the 30 marginal
@@ -515,7 +515,7 @@ is untried here.
 
 ---
 
-## 9. Limitations
+## 10. Limitations
 
 905 and 888 observations from two cell sites over ~2 months. The sample size does not
 support strong claims about model superiority, and the span cannot speak to seasonal or
@@ -536,7 +536,7 @@ is handled by a method that does not assume it.
 
 ---
 
-## 10. Conclusion
+## 11. Conclusion
 
 Treating capacity planning as a forecasting problem scored by RMSE gets three things
 wrong at once, and correcting each changes what the data says.
