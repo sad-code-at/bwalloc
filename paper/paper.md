@@ -692,7 +692,7 @@ superiority, and we make none.
 
 ## Reproducibility
 
-Fixed seeds throughout. 46 verification gates encode the specific failures corrected
+Fixed seeds throughout. 47 verification gates encode the specific failures corrected
 here — leakage, the sampling-rate assumption, the inverted split, the estimability
 bound, the multi-horizon embargo, ACI's causality — so a refactor cannot silently
 reintroduce them. Every figure is regenerated from `experiments/results/` alone, so

@@ -8,6 +8,11 @@ This extends an earlier forecasting study on two Bangladeshi operator traces
 protocol, forecasting at an actual lead time, an allocation layer, and
 context-conditional calibration of that layer.
 
+**New to this project? Read [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md) first.** It teaches
+the whole thing end to end — how to run every experiment, what was changed and why, what each
+term means, and what each change bought. This README states the results; the walkthrough
+explains them.
+
 ---
 
 ## The result to read first
@@ -178,7 +183,7 @@ python experiments/run_horizon.py       # accuracy and allocation vs lead time (
 python experiments/run_transfer.py      # cross-operator cold start (~2 min)
 python experiments/run_foundation.py    # zero-shot Chronos-Bolt (~7 min, CPU)
 python experiments/run_coverage_gate.py # the +/-2% coverage check, on real output
-pytest tests/                           # 46 verification gates
+pytest tests/                           # 47 verification gates
 ```
 
 All tables land in `experiments/results/` as CSV; figures read only from there, so the

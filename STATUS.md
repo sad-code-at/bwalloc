@@ -2,6 +2,9 @@
 
 Last updated: 2026-08-29. Working notes so this can be picked up cold in a new session.
 
+`docs/WALKTHROUGH.md` is the teaching document — run order, vocabulary, what each change
+bought, and how to defend it. This file is the working record; that one is the explanation.
+
 Plan file: `C:\Users\User\.claude\plans\nested-plotting-bengio.md` (approved).
 Original senior's code, untouched, is at
 `D:\L4-T-1\EEE 402\project\ML-Based-Dynamic-Bandwidth-Allocation-for-Mobile-Data-Usage-main\`.
@@ -31,7 +34,7 @@ recovers any earlier state. Commit before stopping.
 | `allocation.py` | done — cost model, policies, Pareto sweep |
 | `pipeline.py` | done — end-to-end allocation backtest |
 | `metrics.py`, `stats.py`, `plots.py` | done (`plots.py` still never executed) |
-| `tests/test_bwalloc.py` | done — 46 gates, all passing |
+| `tests/test_bwalloc.py` | done — 47 gates, all passing |
 
 **Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py`,
 `run_horizon.py`, `run_coverage_gate.py`. Every table is in `experiments/results/`.
@@ -573,7 +576,7 @@ Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
 ```bash
 cd "D:/L4-T-1/EEE 402/project/bwalloc"
 pip install -r requirements.txt
-PYTHONPATH=src python -m pytest tests/ -q      # 46 gates, ~30 s
+PYTHONPATH=src python -m pytest tests/ -q      # 47 gates, ~30 s
 python experiments/run_audit.py                # ~1 min
 python experiments/run_benchmark.py            # ~4 min
 python experiments/run_allocation.py           # ~10 min
