@@ -33,11 +33,17 @@ Auditing the traces' hand-labelled contextual flags shows most do not predict th
 *level* of demand — including the weekend flag both source files are named after
 (p = 0.77) — but rainfall raises residual σ by 33% (Levene p < 0.001). Context acts on
 variance, not level. A marginally calibrated allocator consequently meets its 95%
-target overall while delivering 86.6% during elevated-risk periods. Locally adaptive
-and Mondrian conformal calibration restore it to 91–92%, and at the cost ratio the
-operator specifies, context-adaptive calibration provisions **7.5% (GP) and 14.8%
-(Robi) more cheaply** than a fixed-margin rule tuned with hindsight, while marginal
-calibration is *worse* than that rule on both traces.
+target overall while delivering 86.6% [.807, .912] during elevated-risk periods — an
+interval that excludes the nominal level, so the failure is established. Locally
+adaptive and Mondrian calibration raise it to 0.899 and 0.933, though at n = 179 the
+intervals do not separate them from marginal calibration, so the repair is directional
+rather than decisive.
+
+The consequence is nonetheless measurable in money. At the cost ratio the operator
+specifies, context-adaptive calibration provisions **7.5% (GP) and 14.8% (Robi) more
+cheaply** than a fixed-margin rule tuned with hindsight, while marginal calibration is
+*worse* than that rule on both traces — so conditioning the margin on predicted
+uncertainty pays even where the coverage comparison is underpowered.
 
 We report two negative results in full: correcting the feature design does not improve
 RMSE, and split-conformal coverage fails a ±2% check on real data — 2 of 30
@@ -50,11 +56,58 @@ hours on both operators.
 
 ## 1. Introduction
 
-*[To write: cellular traffic forecasting literature; the slicing/SLA line of work
-(arXiv 2304.11156, 2309.03898, MicroOpt); why RMSE-ranked model bake-offs dominate the
-applied literature and what they miss. Position the paper as a methods contribution
-whose value does not scale with dataset size — which is what makes it defensible at
-n ≈ 900.]*
+Mobile operators provision capacity against demand they cannot observe yet. The applied
+literature treats this as a forecasting problem: assemble lag features, train a set of
+models — gradient boosting, ARIMA, an LSTM — and rank them by RMSE on a held-out split.
+The ranking is then reported as though the best-ranked model were the best *system*.
+
+Three things go wrong in that framing, and they compound.
+
+**The objective is not symmetric.** Under-provisioning breaches a service-level
+agreement and degrades quality of experience; over-provisioning wastes capital. These
+costs differ by a factor of 5–20 in practice, and a loss function that penalises them
+equally optimises for neither. The decision an operator actually makes is an
+allocation, and the cost-minimising allocation is a *quantile* of the predictive
+distribution rather than its mean — which changes the model class, the loss and the
+evaluation metric together.
+
+**The horizon is not one step.** Reported evaluations almost universally predict `y_t`
+given `y_{t-1}`, feeding true lagged values at every step. No provisioning decision can
+be made that way: capacity for an interval is committed before that interval's
+predecessor has been measured. This matters more than it appears, and in a direction
+that is not obvious. We find that at one step a learned model beats a one-line
+persistence baseline by 14% — a margin thin enough to invite the conclusion that the
+modelling is not worth its complexity — but that at an 11.5-hour lead the same model
+beats the naive forecaster *at that same lead* by 59%. The one-step protocol
+systematically understates the value of learning, because it is precisely the regime in
+which the trivial baseline is strongest.
+
+**The evaluation inherits assumptions from the data format.** Operator traces are
+frequently irregularly sampled, and a design matrix indexed by sample count silently
+encodes a sampling rate that may be wrong. Neither trace studied here is hourly (86 and
+99 minutes per sample), so the lag of 24 samples used throughout as the "daily" lag
+spans 34.4 and 39.6 hours and correlates *negatively* with demand. Every seasonal
+statement — STL decomposition, ACF peak, `ARIMA(24,1,0)` — is then made on the wrong
+time axis.
+
+We address all three on two ~900-sample traces from Dhaka cell sites. The small sample
+is a genuine constraint and we do not pretend otherwise; it is also why the methods
+chosen here are the right ones. Conformal calibration is distribution-free and
+finite-sample valid, so it needs no parametric error model that 900 points cannot
+support, and an explicit estimability guard makes the sample-size ceiling visible
+rather than letting it be silently exceeded.
+
+Our central observation concerns the hand-labelled contextual annotation these traces
+carry — rainfall, political gatherings, power cuts, promotional offers. Such annotation
+for a specific Dhaka cell site cannot be downloaded, and it is the dataset's
+distinctive asset; it is also, in the standard treatment, fed to models as binary
+dummies and never validated. Validating it shows that most flags do not predict the
+*level* of demand at all, including the weekend flag both source files are named after.
+What rainfall predicts is *dispersion*: residual σ rises 33%. Context acts on
+variance, not mean — and a point forecaster with a context dummy structurally cannot
+express that, while a context-conditional prediction interval can. This converts weak
+mean-predictors into useful risk signals, which is the right use of annotation that is
+sparse, hand-made and noisy.
 
 **Contributions.**
 
@@ -230,7 +283,7 @@ Two secondary findings:
 For an allocation `A` against realised demand `y`, with over-provisioning unit cost
 `c_over` and under-provisioning κ times more expensive:
 
-$$C = c_{over}(A - y)^+ + \kappa\, c_{over}(y - A)^+$$
+$$C = c_{over}(A — y)^+ + \kappa\, c_{over}(y — A)^+$$
 
 The cost-minimising allocation is the τ-quantile of the predictive distribution with
 
@@ -319,20 +372,52 @@ Groups are formed by priority to keep them disjoint, and merged into two —
 `elevated_risk = rain ∪ gathering` (199 rows) against `baseline` (689) — because a
 four-group split leaves the gathering group with ~20 calibration residuals.
 
-GP, coverage pooled across folds:
+GP, coverage pooled across folds, with Clopper–Pearson 95% intervals. The baseline
+group carries n = 354 test points and the elevated-risk group n = 179; exact binomial
+intervals are used rather than a normal approximation because at n = 179 the
+approximation is not reliable.
 
-| nominal τ | group | marginal | locally adaptive | Mondrian |
-|---|---|---|---|---|
-| 0.80 | baseline | 0.831 | 0.836 | 0.808 |
-| 0.80 | **elevated risk** | **0.698** | 0.732 | 0.726 |
-| 0.90 | baseline | 0.915 | 0.904 | 0.898 |
-| 0.90 | **elevated risk** | **0.771** | 0.816 | 0.816 |
-| 0.95 | baseline | 0.963 | 0.941 | 0.949 |
-| 0.95 | **elevated risk** | **0.866** | 0.911 | **0.922** |
+| nominal τ | group | marginal | locally adaptive | Mondrian | online (ACI) |
+|---|---|---|---|---|---|
+| 0.80 | baseline | 0.831 [.787, .868] | 0.814 [.769, .853] | 0.799 [.754, .840] | 0.825 [.781, .863] |
+| 0.80 | **elevated** | **0.693 [.620, .759]** | 0.726 [.655, .790] | 0.732 [.661, .795] | 0.760 [.690, .820] |
+| 0.90 | baseline | 0.915 [.881, .942] | 0.887 [.849, .918] | 0.887 [.849, .918] | 0.901 [.865, .930] |
+| 0.90 | **elevated** | **0.771 [.702, .830]** | 0.816 [.751, .870] | 0.788 [.720, .845] | **0.911 [.859, .948]** |
+| 0.95 | baseline | 0.958 [.931, .976] | 0.929 [.898, .954] | 0.944 [.914, .965] | 0.949 [.921, .970] |
+| 0.95 | **elevated** | **0.866 [.807, .912]** | 0.899 [.846, .939] | 0.933 [.886, .965] | 0.944 [.900, .973] |
 
-Marginal calibration under-delivers inside the elevated-risk group by 9–14 points at
-every level. Both context-conditional methods recover half to two thirds of that gap at
-near-identical capacity cost (~1.18× demand at τ = 0.95).
+**The failure is established; the repair is directional.** These two halves of the
+claim have different evidential status and we separate them:
+
+- *The failure is decisive.* At τ = 0.90 and τ = 0.95 the marginal interval inside the
+  elevated-risk group excludes the nominal level ([.702, .830] against 0.90;
+  [.807, .912] against 0.95). A marginally calibrated allocator demonstrably does not
+  deliver its promised service level when the network is under stress.
+- *The context-conditional repair is not decisive at this sample size.* Locally
+  adaptive calibration moves the τ = 0.95 elevated-risk estimate from 0.866 to 0.899,
+  but the intervals overlap substantially ([.807, .912] against [.846, .939]), and the
+  adaptive interval still excludes 0.95. Mondrian does better (0.933, [.886, .965],
+  which does contain the nominal level) but on the same 179 points. The point
+  estimates favour the context-conditional methods at every level on both groups; the
+  intervals do not separate them from marginal calibration.
+
+This is a limit of the data, not of the method: 179 elevated-risk test points cannot
+resolve a 3–7 point coverage difference. We report it rather than quoting the point
+estimates alone.
+
+**An unexpected result.** The largest and only clearly decisive improvement inside the
+elevated-risk group comes from **online** calibration, which is not context-conditional
+at all: at τ = 0.90 it reaches 0.911 [.859, .948] against marginal's 0.771
+[.702, .830] — non-overlapping intervals. ACI adapts to *whatever* is currently causing
+breaches, and elevated-risk periods are clustered in time, so an online level update
+partly absorbs them without ever being told the context.
+
+The honest reading is that the two mechanisms are complementary and that on this
+dataset the temporal one is better evidenced than the contextual one. A per-group
+online update — the obvious combination — is untried here and is the clearest next
+step.
+
+The capacity cost of all of this is near-identical (~1.18× demand at τ = 0.95).
 
 ### 6.3 The prediction is falsifiable, and it is null on Robi
 
@@ -453,18 +538,50 @@ is handled by a method that does not assume it.
 
 ## 10. Conclusion
 
-*[To write. The two sentences the paper earns:*
+Treating capacity planning as a forecasting problem scored by RMSE gets three things
+wrong at once, and correcting each changes what the data says.
 
-> *At the cost ratio the operator specifies, context-adaptive conformal allocation
-> provisions 7.5% (GP) and 14.8% (Robi) more cheaply than a fixed-margin rule tuned
-> with hindsight, while marginally calibrated allocation is worse than that rule on
-> both traces.*
+Correcting the **horizon** rescues the case for learning. At one step a learned model
+beats persistence by 14% on GP, a margin that would not justify deploying anything; at
+the lead time a provisioning decision actually requires, it beats the naive forecaster
+at that same lead by 59%, and by 63% on the second operator. The conventional protocol
+measures these systems in the one regime where they look worst.
 
-> *Marginal calibration meets its 95% target overall but delivers only 86.6% during
-> elevated-risk periods; context-conditional calibration restores it to 91–92% at
-> near-identical capacity cost.*
+Correcting the **objective** makes the comparison meaningful. Scored on provisioning
+cost at the level the theory prescribes from the operator's own cost ratio — against a
+fixed-margin heuristic given its best margin with hindsight — context-adaptive
+conformal allocation is 7.5% (GP) and 14.8% (Robi) cheaper, while marginally calibrated
+allocation is *worse* than that heuristic on both traces. The saving comes specifically
+from conditioning the margin on predicted uncertainty.
 
-*]*
+Correcting the **sampling assumption** is what makes anything comparable across sites,
+and it pays an unanticipated dividend: because lags are defined in wall-clock hours
+rather than sample counts, a model trained on one operator transfers to the other.
+Given only enough history to fix a new site's scale, a borrowed model is 23% better
+than persistence with zero training data of its own, and the crossover to training
+locally arrives after about a week.
+
+On the context-conditional claim we are deliberately careful. That marginal calibration
+*fails* inside high-variance contexts is established: at τ = 0.95 its elevated-risk
+interval is [.807, .912], excluding the nominal level. That context-conditional
+calibration *repairs* it is directional — the point estimates improve at every level,
+but 179 elevated-risk test points cannot resolve a 3–7 point difference. The largest
+decisive improvement on that group in fact comes from online calibration, which is not
+context-conditional at all, because elevated-risk periods cluster in time and an online
+level update partly absorbs them without being told the context. A per-group online
+update is the obvious combination and is untried.
+
+Two negative results are reported in full because they discipline the claims: the
+corrected feature design does not improve RMSE, since tree ensembles route around a
+mis-specified lag; and static conformal coverage fails its ±2% target almost
+everywhere, because a 55-day trace with a trend does not satisfy exchangeability.
+Online calibration repairs the latter completely — 30 of 30 configurations — and that
+is the property a deployable allocator needs, because it holds at every lead time,
+including those where the forecast is weakest.
+
+None of this depends on the dataset being large, which is what makes it defensible at
+n = 900. What the sample size does foreclose is any strong claim about model
+superiority, and we make none.
 
 ---
 

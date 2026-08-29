@@ -225,7 +225,36 @@ Achieved coverage, pooled across folds, weighted by test-block size:
 Consistent at every level: marginal calibration under-delivers on the elevated-risk
 group by 9–14 points, and both context-conditional methods recover roughly half to two
 thirds of that gap at near-identical capacity cost (~1.18× demand at τ=0.95).
-**This is the strongest result in the project and is the paper's core contribution.**
+
+### IMPORTANT correction — attach the confidence intervals before quoting this
+
+I previously called this "the strongest result in the project". With Clopper–Pearson
+95% intervals attached (n = 354 baseline, n = 179 elevated risk) the claim has to be
+split in two, because its halves have different evidential status:
+
+| τ | group | marginal | adaptive | mondrian | aci |
+|---|---|---|---|---|---|
+| 0.90 | elevated | 0.771 [.702, .830] | 0.816 [.751, .870] | 0.788 [.720, .845] | **0.911 [.859, .948]** |
+| 0.95 | elevated | 0.866 [.807, .912] | 0.899 [.846, .939] | 0.933 [.886, .965] | 0.944 [.900, .973] |
+
+- **The failure IS decisive.** At τ=0.90 and τ=0.95 the marginal interval on the
+  elevated-risk group excludes the nominal level. That marginal calibration fails where
+  the network is stressed is established, and is safe to claim.
+- **The context-conditional repair is NOT decisive at this sample size.** Adaptive moves
+  τ=0.95 from 0.866 to 0.899, but [.807, .912] and [.846, .939] overlap heavily, and
+  the adaptive interval still excludes 0.95. Mondrian reaches 0.933 [.886, .965], which
+  does contain the nominal level — the best of the three, but on the same 179 points.
+
+179 elevated-risk test points cannot resolve a 3–7 point coverage difference. Quote the
+point estimates *with* the intervals, and describe the repair as directional.
+
+**Unexpected, and worth leading with:** the largest and only clearly decisive
+improvement on the elevated-risk group comes from **ACI**, which is not
+context-conditional at all — at τ=0.90, 0.911 [.859, .948] against marginal's 0.771
+[.702, .830], non-overlapping. Elevated-risk periods cluster in time, so an online level
+update partly absorbs them without ever being told the context. The temporal mechanism
+is better evidenced than the contextual one on this dataset. A per-group online update
+is the obvious combination and is untried.
 
 **Robi — the method correctly does nothing, as predicted.**
 
@@ -449,8 +478,10 @@ Table: `transfer_robi_to_gp.csv`. Figure: `fig8_transfer.png`.
   Chronos-Bolt Small is ~48M parameters and these are 900-point series, so CPU
   inference is minutes, not hours. Colab's free T4 is the easy route; a local CPU run
   is also viable. TimesFM is the heavier of the two — try Chronos-Bolt first.
-- **The paper itself.** No draft exists. Everything it needs is now in
-  `experiments/results/` and `paper/figures/`.
+- **The paper.** `paper/paper.md` is a complete draft — abstract, introduction,
+  all seven results sections, limitations and conclusion, every number sourced from
+  `experiments/results/`. What remains is related-work positioning (the citations are
+  listed at the end of the plan file) and converting it to the venue's LaTeX template.
 - Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a
   reported table; LightGBM/sklearn `QuantileGBM` backends untested locally.
 
