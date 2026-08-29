@@ -272,3 +272,45 @@ def plot_cost(cost: pd.DataFrame, ax=None):
     )
     ax.invert_yaxis()
     return ax
+
+
+def plot_transfer(transfer: pd.DataFrame, horizon_hours: float = 6.0, ax=None):
+    """Cold-start curves: RMSE against days of the new site's own history.
+
+    The operational reading is the crossover. Pretraining on another operator wins
+    while the new site has almost no data of its own, the site's own data wins once
+    it has enough, and where those lines cross is the answer to "how long before a
+    newly deployed site can forecast for itself".
+
+    Parameters
+    ----------
+    transfer:
+        The ``transfer_robi_to_gp.csv`` table.
+    horizon_hours:
+        Which lead time to draw. The one-step rows are near-uninformative on these
+        traces because persistence is close to unbeatable there.
+    """
+    ax = ax or plt.gca()
+    sub = transfer[transfer["horizon_hours"] == horizon_hours]
+    if sub.empty:
+        raise ValueError(f"no rows at horizon_hours={horizon_hours}")
+
+    floor = sub[sub["arm"] == "persistence"]["rmse"]
+    styles = {
+        "gp_only": ("#2a7ab0", "-", "o", "target site's own data only"),
+        "transfer": ("#c86a1e", "-", "s", "pretrained elsewhere, then fine-tuned"),
+        "robi_cold": ("#4a8c4a", "--", "^", "pretrained elsewhere, no fine-tuning"),
+    }
+    for arm, (colour, style, marker, label) in styles.items():
+        rows = sub[sub["arm"] == arm].sort_values("k_days")
+        if not rows.empty:
+            ax.plot(rows["k_days"], rows["rmse"], style, color=colour,
+                    marker=marker, lw=1.8, label=label)
+    if not floor.empty:
+        ax.axhline(float(floor.iloc[0]), color="0.25", ls=":", lw=1.5,
+                   label="persistence at this lead")
+
+    ax.set_xlabel("days of the new site's own history")
+    ax.set_ylabel("RMSE (Gbps)")
+    ax.legend(fontsize=7)
+    return ax

@@ -613,7 +613,98 @@ summary.pivot_table(index=["tau", "method"], columns="lead_hours",
 """),
 ]
 
-NOTEBOOKS["05_paper_figures.ipynb"] = [
+NOTEBOOKS["05_transfer.ipynb"] = [
+    md("""
+# 05 — Cross-operator cold-start transfer
+
+**How much of its own history does a newly deployed cell site need before its
+forecaster is worth using?**
+
+This replaces `Robi_to_GP.ipynb` from the original project rather than repairing it.
+That notebook is titled as a Robi→GP transfer study but loads the GP file for both
+halves, so it trains and tests on the same operator; it then adds 20 Gbps to the test
+actuals before plotting them against unchanged predictions. There is nothing in it to
+salvage.
+
+Four arms, all scored on one fixed GP test window:
+
+| arm | what it represents |
+|---|---|
+| `persistence` | the floor — no history at all |
+| `gp_only(k)` | the new site's own first *k* days, alone |
+| `robi_cold` | trained on the other operator, no fine-tuning at all |
+| `transfer(k)` | pretrained on the other operator, then continued on *k* days of GP |
+"""),
+    code(BOOTSTRAP),
+    md("""
+## Why this is even possible
+
+The two traces are sampled at different rates — 86 min against 99 min — so a design
+matrix indexed by *sample count* is not comparable across them: `lag_24` means 34.4 h
+on one site and 39.6 h on the other. Because the corrected feature builder defines
+lags in **wall-clock hours** and seasonality in Fourier terms of wall-clock time, the
+two design matrices measure the same quantities and a model can move between them.
+
+The transfer study is a dividend of the sampling-rate correction, not an independent
+contribution.
+
+Context availability is itself part of the problem: GP carries nine hand-labelled
+flags and Robi five, so transfer is restricted to the five they share — and the four
+that are dropped include `is_rain`, the only flag the audit found to carry real
+variance signal.
+"""),
+    code("""
+from bwalloc.data import CONTEXT_FLAGS
+
+shared = [f for f in CONTEXT_FLAGS["gp"] if f in CONTEXT_FLAGS["robi"]]
+dropped = [f for f in CONTEXT_FLAGS["gp"] if f not in shared]
+print("shared :", shared)
+print("dropped:", dropped)
+"""),
+    md("## The result\n\nRun `python experiments/run_transfer.py` to regenerate."),
+    code("""
+from bwalloc.plots import plot_transfer
+
+transfer = pd.read_csv(RESULTS / "transfer_robi_to_gp.csv")
+display(
+    transfer.pivot_table(index=["horizon_hours", "k_days"], columns="arm", values="rmse")
+    .round(3)
+)
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+for ax, hours in zip(axes, sorted(transfer["horizon_hours"].unique())):
+    plot_transfer(transfer, horizon_hours=hours, ax=ax)
+    ax.set_title(f"{hours:g}-hour horizon")
+fig.tight_layout()
+fig.savefig(FIGURES / "fig8_transfer.png", dpi=200, bbox_inches="tight")
+"""),
+    md("""
+## Reading it
+
+**At a one-step horizon the study cannot answer anything.** Persistence scores 12.51
+and no arm beats it, so every curve sits above the floor and the transfer question is
+invisible. This is the same trap the original notebook fell into, and it is why the
+6-hour panel is the one to read.
+
+**At a 6-hour lead the answer is clean:**
+
+- A model trained *entirely on the other operator*, given only enough GP history to
+  fix the level and scale, scores **20.4** against persistence's **26.5** — 23% better
+  than the floor with **zero** training data from the new site.
+- Pretraining helps only while the site is data-poor: **+4.6%** over training on the
+  site's own data at 3 days, then nothing by 5–7 days, and **−10%** by 21 days, where
+  the pretrained weights are actively holding the model back.
+- The crossover is at roughly **5–7 days**. That is the operational answer: a new site
+  should borrow a neighbour's model for its first week and switch to its own after.
+
+The scale correction is not incidental. GP averages 92.9 Gbps and Robi 145.5, so
+every level-valued feature and the target are z-scored per operator; the new site's
+own first *k* days supply those statistics, which is the only information a genuine
+cold start has.
+"""),
+]
+
+NOTEBOOKS["06_paper_figures.ipynb"] = [
     md("""
 # 05 — Paper figures
 
@@ -730,6 +821,18 @@ for ax, op in zip(axes, ("gp", "robi")):
     ax.set_title(op.upper())
 fig.tight_layout()
 save(fig, "fig7_cost.png")
+"""),
+    md("### Figure 8 — cold-start transfer"),
+    code("""
+from bwalloc.plots import plot_transfer
+
+transfer = pd.read_csv(RESULTS / "transfer_robi_to_gp.csv")
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+for ax, hours in zip(axes, sorted(transfer["horizon_hours"].unique())):
+    plot_transfer(transfer, horizon_hours=hours, ax=ax)
+    ax.set_title(f"{hours:g}-hour horizon")
+fig.tight_layout()
+save(fig, "fig8_transfer.png")
 """),
     code("""
 print(f"wrote {len(written)} figures to {FIGURES}")

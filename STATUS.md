@@ -354,18 +354,62 @@ extend the fix across lead times.
 
 ---
 
+## C4 — cold-start transfer, done, and the answer is about a week (NEW, verified)
+
+`experiments/run_transfer.py` replaces the broken `Robi_to_GP.ipynb`. Four arms on
+one fixed GP test window (last 30%, 267 points), Robi as the source operator.
+
+**This experiment is only possible because of the C1 correction.** The two traces are
+sampled at 86 and 99 min, so a design matrix indexed by sample count is not comparable
+across them — `lag_24` means 34.4 h on one site and 39.6 h on the other. Because lags
+are defined in wall-clock hours and seasonality in Fourier terms of wall-clock time,
+the two design matrices measure the same quantities and a model can move between them.
+Transfer is a dividend of the sampling-rate correction.
+
+Only the five flags both operators carry can be used; the four dropped include
+`is_rain`, the one flag with real variance signal.
+
+**At a 6-hour lead** (RMSE on the fixed GP test window; persistence = **26.49**):
+
+| days of GP history | 3 | 5 | 7 | 14 | 21 |
+|---|---|---|---|---|---|
+| gp_only (own data alone) | 20.61 | 19.81 | 18.98 | **14.82** | 15.86 |
+| transfer (pretrained + fine-tuned) | **19.65** | 19.87 | 19.91 | 15.63 | 17.45 |
+| robi_cold (pretrained, no fine-tuning) | 20.39 | 20.01 | 19.74 | 19.06 | 19.04 |
+| transfer gain over own data | **+4.6%** | −0.3% | −4.9% | −5.5% | −10.0% |
+
+Three things to say about this:
+
+1. **A model trained entirely on a different operator, given only enough of the new
+   site's history to fix its level and scale, scores 20.4 against persistence's 26.5 —
+   23% better than the floor with zero training data from the new site.**
+2. Pretraining helps only while the site is data-poor: +4.6% at 3 days, nothing by
+   5–7 days, and **−10% by 21 days**, where the borrowed weights actively hold the
+   model back.
+3. **The crossover is at roughly 5–7 days.** That is the operational answer: borrow a
+   neighbour's model for the first week, then switch to the site's own.
+
+**At a 1.5-hour lead the study answers nothing** — persistence scores 12.51 and no arm
+beats it, so every curve sits above the floor. That is precisely the trap the original
+notebook fell into, and it is a second demonstration of the multi-horizon point.
+
+Scale handling: GP averages 92.9 Gbps against Robi's 145.5, so the target and every
+level-valued feature are z-scored per operator, with the new site's own first *k* days
+supplying the statistics — the only information a genuine cold start has.
+
+Table: `transfer_robi_to_gp.csv`. Figure: `fig8_transfer.png`.
+
+---
+
 ## What is still not done
 
-- **C3 — zero-shot foundation models** (Chronos-Bolt, TimesFM). Not started.
-- **C4 — cross-operator transfer** (pretrain on Robi, fine-tune on *k* days of GP).
-  Not started. This is the one that replaces the broken `Robi_to_GP.ipynb`.
-- **The paper itself.** No draft exists.
-- **Figures**: `plots.py` is verified to render (all five functions tested), and
-  `notebooks/05_paper_figures.ipynb` writes them, but no figure has been committed to
-  `paper/figures/` yet.
+- **C3 — zero-shot foundation models** (Chronos-Bolt, TimesFM). Not started, and the
+  only remaining contribution from the plan. Needs a GPU Colab runtime; do not attempt
+  locally on Windows CPU.
+- **The paper itself.** No draft exists. Everything it needs is now in
+  `experiments/results/` and `paper/figures/`.
 - Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a
   reported table; LightGBM/sklearn `QuantileGBM` backends untested locally.
-- `run_horizon.py` should be re-run to pick up `aci` and the relative variant.
 
 ---
 
@@ -391,6 +435,7 @@ python experiments/run_audit.py                # ~1 min
 python experiments/run_benchmark.py            # ~4 min
 python experiments/run_allocation.py           # ~10 min
 python experiments/run_horizon.py              # ~20 min
+python experiments/run_transfer.py              # ~2 min
 python experiments/run_coverage_gate.py        # instant, reads CSVs only
 python notebooks/_build.py                     # regenerate the notebooks
 ```
