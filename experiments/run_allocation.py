@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT / "src"))
 import bwalloc as bw  # noqa: E402
 from bwalloc.allocation import (  # noqa: E402
     capacity_saving_at_equal_sla,
+    cost_comparison,
     evaluate_policy,
     kappa_for_tau,
     pareto_sweep,
@@ -194,6 +195,15 @@ def main() -> None:
                     print(f"    {family:>19} at <= {target:.0%} violations: "
                           "no feasible operating point")
         pd.DataFrame(savings).to_csv(RESULTS / f"savings_{operator}.csv", index=False)
+
+        # The comparison that is actually fair: lowest realised cost per family. The
+        # fixed-margin frontier above can only be drawn with hindsight about which
+        # margin hit which violation rate, whereas tau is set a priori from kappa.
+        costs = cost_comparison(pareto)
+        costs.insert(0, "operator", operator)
+        costs.to_csv(RESULTS / f"cost_{operator}.csv", index=False)
+        print("\n  Lowest achievable cost per family (kappa=10):")
+        print(costs.to_string(index=False, float_format=lambda v: f"{v:9.4f}"))
 
         # -- 2. Context-conditional calibration --------------------------------
         per_fold, allocations = run_allocation_backtest(

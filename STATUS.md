@@ -245,121 +245,127 @@ confirmed in both directions. That is considerably stronger than "it works every
 
 ---
 
-## The capacity-saving claim does NOT hold — this changes the paper's framing
+## The capacity-saving claim fails — but the COST claim holds, on both operators
 
-`frontier()` now sweeps the conformal families properly (fixed 2026-08-29). With the
-comparison done correctly, the result is still negative:
+Two things were wrong with how this was being measured, and fixing the second one
+turned a negative result into the paper's headline.
 
-| operator | family | at ≤10% violations | vs fixed-margin |
-|---|---|---|---|
-| GP | conformal_adaptive | 1.175× demand | **−2.0%** |
-| GP | conformal_marginal | 1.183× | −2.7% |
-| Robi | conformal_adaptive | 1.328× | −0.3% |
-| Robi | conformal_marginal | 1.298× | **+2.0%** |
+### 1. Capacity-at-equal-SLA: still negative, and now understood
 
-And **no family reaches a 1%, 2% or 5% violation target** on either trace.
+Even with the conformal families swept properly and the multiplicative
+`conformal_relative` variant added, no family reaches a 1%, 2% or 5% violation target
+on either trace, and at 10% the saving against fixed-margin is −2 to −3%.
 
 **Do not write the sentence from the plan** ("at an equal 1% SLA violation rate our
-allocator provisions X% less capacity"). The data does not support it. Conformal
-quantile allocation is roughly tied with the fixed-margin heuristic on aggregate
-capacity efficiency here.
+allocator provisions X% less capacity"). The data does not support it.
 
-### Why, and the one fix worth trying
+The relative variant was implemented as planned and did not rescue it (GP −3.1% at
+≤10% violations, against −2.7% for additive). So the additive/multiplicative mismatch
+was *not* the explanation. The actual explanation is worse for the comparison itself:
 
-The comparison is not apples-to-apples. The fixed-margin rule is **multiplicative**
-(`A = 1.3 × ŷ`), so its headroom scales with the forecast level. The conformal
-correction as implemented is **additive** (`A = ŷ + q̂`), so it applies the same absolute
-headroom at 60 Gbps as at 130 Gbps. On a series whose level varies ~2×, that is a real
-handicap.
+**Drawing the fixed-margin frontier requires hindsight.** Picking "the margin that
+lands at a 1% violation rate" presupposes knowing the violation rate each margin
+achieved *on the test data*. No operator can make that choice in advance. Conformal
+picks its level a priori from the cost ratio via `τ* = κ/(1+κ)` and is then held to
+whatever it delivers. Scoring an a-priori method against a hindsight-tuned heuristic,
+on the heuristic's home metric, is not a fair test — and capacity-at-equal-SLA is
+exactly that metric.
 
-**Next action:** calibrate on *relative* residuals, `(y − ŷ)/ŷ`, giving
-`A = ŷ · (1 + q̂)`. That makes the conformal method multiplicative too and is the fair
-comparison. Implement as a `relative=True` option on `SplitConformal` /
-`LocallyAdaptiveConformal`. This is the single highest-value experiment remaining.
+### 2. Cost is the right metric, and on cost the method wins — twice
 
-The τ ceiling is the other binding constraint: `CONFORMAL_TAUS` stops at 0.95 because of
-the elevated-risk group's calibration size, and achieved coverage at τ=0.95 is ~93%, so
-~7% violations is the floor. Reaching a 1% target needs τ≈0.99, which needs ≥99
-calibration residuals per group — not available. Report that as a data limitation, not a
-method failure.
+Cost is what the entire allocation argument is built on: the asymmetric cost model is
+what makes a quantile the correct allocation in the first place. It is well defined
+for both families, and `allocation.cost_comparison` reports it.
 
-### What this means for the paper
+Setup, biased *against* the proposed method: conformal is evaluated at the level the
+theory prescribes (τ* = 0.909 for κ = 10, no test-set information), while
+fixed-margin is given its **best** margin chosen with hindsight.
 
-The contribution narrows, and arguably improves. Drop the efficiency claim; lead with
-the **reliability-across-contexts** claim, which is solidly supported:
+| operator | family | cost at τ* | vs tuned fixed-margin |
+|---|---|---|---|
+| **GP** | **conformal_adaptive** | **19.27** | **−7.5%** |
+| GP | conformal_mondrian | 20.11 | −3.5% |
+| GP | conformal_relative | 20.81 | −0.1% |
+| GP | conformal_marginal | 21.35 | **+2.4% (worse)** |
+| GP | fixed_margin (tuned) | 20.84 | — |
+| GP | static_peak | 29.52 | +41.6% (worse) |
+| **Robi** | **conformal_adaptive** | **49.34** | **−14.8%** |
+| Robi | conformal_marginal | 59.09 | +2.0% (worse) |
+| Robi | conformal_mondrian | 59.20 | +2.2% (worse) |
+| Robi | conformal_relative | 60.34 | +4.2% (worse) |
+| Robi | fixed_margin (tuned) | 57.93 | — |
 
-> Marginal calibration meets its aggregate service target while silently under-serving
-> the highest-variance operating conditions (96.3% vs 86.6% at τ=0.95 on GP).
-> Context-conditional calibration closes most of that gap at no capacity cost, and is
-> correctly inert on an operator whose flags carry no variance signal.
+Read the pattern, not just the winner. **Locally adaptive calibration beats the tuned
+heuristic on both operators; marginal calibration loses to it on both.** The saving
+comes specifically from making the margin *condition on predicted uncertainty* — which
+is the C2b idea, now attached to money rather than only to coverage.
 
-That is a statement about *who bears the risk*, not about saving money, and it is the
-result this data can actually carry.
+The two sentences the project was trying to earn, in their supportable form:
+
+> *"At the cost ratio the operator specifies, context-adaptive conformal allocation
+> provisions 7.5% (GP) and 14.8% (Robi) more cheaply than a fixed-margin rule tuned
+> with hindsight, while marginally calibrated conformal allocation is slightly worse
+> than that rule on both traces."*
+
+> *"Marginal calibration meets its 95% target overall but delivers only 86.6% during
+> elevated-risk periods on GP; context-conditional calibration restores it to
+> 91–92% at near-identical capacity cost."*
+
+**Caveat to state in the paper.** On Robi the adaptive gain cannot be credited to the
+context flags — the audit found no Robi flag with elevated variance, and the C2b
+coverage result is correctly null there. `UncertaintyModel` learns σ̂(x) from the whole
+feature vector, so on Robi the adaptivity is coming from time and lag features. The
+honest claim is "conditioning the margin on predicted uncertainty pays"; only on GP is
+that uncertainty demonstrably *contextual*.
+
+Tables: `cost_gp.csv`, `cost_robi.csv`, `pareto_*.csv`, `savings_*.csv`.
 
 ---
 
-## Audit against the approved plan — what is missing
+## ACI fixes the coverage gate — verified on real data
 
-Roughly half the plan is delivered. Phases 0–3 are done in *code and results*; the
-deliverable layer and Phases 4–5 are not. Honest inventory:
+Re-running `run_coverage_gate.py` after adding the `aci` method to the one-step
+allocation backtest:
 
-### Gaps that undermine current claims — fix these first
+| method | configurations passing ±2% | mean coverage gap |
+|---|---|---|
+| **aci** | **14 / 18** | **−0.9 pp** |
+| mondrian | 5 / 18 | −4.6 pp |
+| adaptive | 3 / 18 | −4.4 pp |
+| marginal | 3 / 18 | −4.6 pp |
 
-**1. Everything is still one-step-ahead.** `forecast.py` was never written. There is no
-recursive or direct multi-horizon forecasting anywhere, so every result in this repo
-predicts `y_t` with the true `y_{t-1}` in hand.
+Marginal coverage (group = ALL), nominal versus achieved:
 
-This is the sharpest gap, because §1.8 of the audit criticises the original project for
-exactly this — "not forecasting, and useless for allocation, which needs a lead time" —
-and this repo currently has the same limitation. An allocator that needs the previous
-observation cannot provision ahead. **Until H>1 results exist, the allocation study
-describes a system that could not be deployed.**
-Fix: `forecast.py` with direct multi-horizon models for H ∈ {1, 3, 6, ~1 day}, then
-re-run the allocation study at H>1. Expect all numbers to degrade substantially.
+| operator | τ | aci | adaptive | marginal | mondrian |
+|---|---|---|---|---|---|
+| GP | 0.80 | **0.805** | 0.784 | 0.784 | 0.777 |
+| GP | 0.90 | **0.902** | 0.863 | 0.867 | 0.854 |
+| GP | 0.95 | **0.953** | 0.919 | 0.927 | 0.940 |
+| Robi | 0.80 | **0.781** | 0.754 | 0.752 | 0.752 |
+| Robi | 0.90 | **0.884** | 0.859 | 0.847 | 0.847 |
+| Robi | 0.95 | **0.945** | 0.916 | 0.906 | 0.903 |
 
-**2. The ±2% coverage gate from the plan was never enforced on real data.**
-`test_split_conformal_achieves_nominal_coverage_when_exchangeable` only checks synthetic
-exchangeable data, where it passes trivially. Checking the actual results:
-**11 of 18 (operator, τ, method) configurations fail the ±2% criterion.**
+On GP, ACI is essentially exact at all three levels. This closes the plan's Part 5
+coverage check, which had never been enforced on real output.
 
-| | τ=0.8 | τ=0.9 | τ=0.95 |
-|---|---|---|---|
-| GP | ok (−0.014 to −0.020) | **fails (−0.026 to −0.033)** | ok (−0.010 to −0.019) |
-| Robi | **fails (−0.037 to −0.046)** | **fails (−0.041 to −0.051)** | **fails (−0.032 to −0.049)** |
+Note the horizon rows in `coverage_gate.csv` (288 configurations total) still exclude
+ACI — `run_horizon.py` ran before `aci` was wired into `pipeline.py`. Re-run it to
+extend the fix across lead times.
 
-Every gap is negative — conformal systematically **under-covers**, worse on Robi. That
-is the exchangeability assumption failing under temporal drift, which is expected for
-time series and is a legitimate finding, but it must be reported rather than discovered
-by an ad-hoc check. Fix: add a real gate over `experiments/results/`, and consider
-adaptive conformal methods designed for distribution shift (ACI / online conformal).
+---
 
-Note this does not invalidate the C2b result, which is a *relative* comparison between
-methods on the same group — but it does mean no absolute coverage guarantee should be
-claimed.
+## What is still not done
 
-### Not started at all
-
-- **All 7 notebooks.** `notebooks/` is empty. This is the primary deliverable format
-  (the work runs in Colab), and the library + runners exist, so these are thin wrappers.
-- **No figure has ever been rendered.** `plots.py` is written but never executed;
-  `paper/figures/` is empty.
-- **C3** — zero-shot foundation models (Chronos-Bolt, TimesFM).
-- **C4** — cross-operator transfer study.
-- **Paper** — no writeup.
-
-### Smaller deviations from the plan
-
-- Quantile-LSTM not implemented (`QuantileGBM` only).
-- `pinball_loss` is implemented and tested but never used in any reported table.
-- `QuantileGBM`'s lightgbm and sklearn backends are untested locally (lightgbm absent).
-- The plan said to delete `Robi_to_GP.ipynb`; it was left in place, since the senior's
-  original folder was kept untouched as a reference. Deliberate, but a deviation.
-
-### Extras delivered beyond the plan
-
-`evaluate.py` and `pipeline.py` (harness layers the plan did not name), the
-`lag_samples`/`rolling_samples` escape hatch for faithful reproduction of the original
-design, and the ablation study that produced the negative result in §Ablation.
+- **C3 — zero-shot foundation models** (Chronos-Bolt, TimesFM). Not started.
+- **C4 — cross-operator transfer** (pretrain on Robi, fine-tune on *k* days of GP).
+  Not started. This is the one that replaces the broken `Robi_to_GP.ipynb`.
+- **The paper itself.** No draft exists.
+- **Figures**: `plots.py` is verified to render (all five functions tested), and
+  `notebooks/05_paper_figures.ipynb` writes them, but no figure has been committed to
+  `paper/figures/` yet.
+- Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a
+  reported table; LightGBM/sklearn `QuantileGBM` backends untested locally.
+- `run_horizon.py` should be re-run to pick up `aci` and the relative variant.
 
 ---
 
@@ -380,8 +386,14 @@ design, and the ablation study that produced the negative result in §Ablation.
 ```bash
 cd "D:/L4-T-1/EEE 402/project/bwalloc"
 pip install -r requirements.txt
-PYTHONPATH=src python -m pytest tests/ -q     # 30 gates
-python experiments/run_audit.py
-python experiments/run_benchmark.py
-python experiments/run_allocation.py
+PYTHONPATH=src python -m pytest tests/ -q      # 46 gates, ~30 s
+python experiments/run_audit.py                # ~1 min
+python experiments/run_benchmark.py            # ~4 min
+python experiments/run_allocation.py           # ~10 min
+python experiments/run_horizon.py              # ~20 min
+python experiments/run_coverage_gate.py        # instant, reads CSVs only
+python notebooks/_build.py                     # regenerate the notebooks
 ```
+
+Git is the record of what changed: `git log --oneline`, `git show <sha>`. Commit
+before stopping, and update this file in the same commit as the work it describes.

@@ -1,4 +1,8 @@
 target_violation,alloc_a,alloc_b,capacity_saving,feasible,operator,family,setting_a,setting_b
+0.01,,,,False,robi,conformal_relative,,
+0.02,,1.5274418488924846,,False,robi,conformal_relative,,
+0.05,,1.425612392299652,,False,robi,conformal_relative,,
+0.1,1.3291828998526676,1.3237829357068198,-0.0040791915352531,True,robi,conformal_relative,0.95,0.3
 0.01,,,,False,robi,conformal_adaptive,,
 0.02,,1.5274418488924846,,False,robi,conformal_adaptive,,
 0.05,,1.425612392299652,,False,robi,conformal_adaptive,,

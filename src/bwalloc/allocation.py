@@ -257,3 +257,93 @@ def capacity_saving_at_equal_sla(
         "capacity_saving": float(saving),
         "feasible": True,
     }
+
+
+def cost_comparison(
+    pareto: pd.DataFrame,
+    kappa: float = 10.0,
+    cost_col: str = "cost_kappa10",
+    baseline_family: str = "fixed_margin",
+) -> pd.DataFrame:
+    """Best achievable cost per policy family, against the fixed-margin rule.
+
+    Why this, and not capacity-at-equal-SLA
+    ---------------------------------------
+    The capacity-at-equal-SLA comparison flatters the incumbent, and it took a while
+    to see why. Drawing the fixed-margin frontier requires knowing the violation rate
+    each margin *achieved on the test data*; picking "the margin that lands at 1%
+    violations" is a choice no operator can make in advance. Conformal calibration
+    picks its level a priori from the cost ratio, via ``tau* = kappa/(1+kappa)``, and
+    is then held to whatever it delivers. Scoring a hindsight-tuned heuristic against
+    an a-priori method on the heuristic's home metric is not a fair test.
+
+    Cost is the metric the whole allocation argument is built on -- the asymmetric
+    cost model is what makes a quantile the right allocation in the first place -- and
+    it is well defined for both.
+
+    Two columns, and the difference between them is the point
+    ---------------------------------------------------------
+    ``cost_at_tau_star`` is the cost at the level the theory *prescribes* from the
+    cost ratio alone, ``tau* = kappa/(1+kappa)``. No test-set information enters that
+    choice, so it is what the method would actually deliver in deployment.
+
+    ``cost_best`` is the cost at the family's best setting, chosen with hindsight. It
+    is reported for the fixed-margin rule because that rule has no principled way to
+    pick its margin, so hindsight is the *only* way to give it a number -- and giving
+    it its best possible number is the conservative thing to do.
+
+    The headline saving therefore compares an a-priori choice against a
+    hindsight-tuned baseline, which is a comparison biased *against* the proposed
+    method.
+
+    Returns
+    -------
+    DataFrame
+        One row per family, sorted by ``cost_at_tau_star`` where it is defined.
+    """
+    if cost_col not in pareto.columns:
+        raise KeyError(f"{cost_col!r} not in pareto columns: {list(pareto.columns)}")
+
+    tau_star = optimal_tau(kappa)
+    rows = []
+    for family, sub in pareto.groupby("family"):
+        best = sub.loc[sub[cost_col].idxmin()]
+        row = {
+            "family": family,
+            "best_setting": float(best["setting"]),
+            "cost_best": float(best[cost_col]),
+            "sla_at_best": float(best["sla_violation_rate"]),
+            "alloc_at_best": float(best["mean_allocation_ratio"]),
+        }
+        # A quantile-indexed family can be evaluated at the prescribed level; a
+        # margin-indexed one cannot, and gets NaN rather than a spurious number.
+        if family != baseline_family and sub["setting"].between(0.0, 1.0).all():
+            at = sub.loc[(sub["setting"] - tau_star).abs().idxmin()]
+            row.update(
+                tau_star_setting=float(at["setting"]),
+                cost_at_tau_star=float(at[cost_col]),
+                sla_at_tau_star=float(at["sla_violation_rate"]),
+                alloc_at_tau_star=float(at["mean_allocation_ratio"]),
+            )
+        else:
+            row.update(
+                tau_star_setting=float("nan"), cost_at_tau_star=float("nan"),
+                sla_at_tau_star=float("nan"), alloc_at_tau_star=float("nan"),
+            )
+        rows.append(row)
+
+    out = pd.DataFrame(rows)
+    baseline = out[out["family"] == baseline_family]
+    if baseline.empty:
+        raise ValueError(f"No rows for baseline family {baseline_family!r}.")
+    ref = float(baseline["cost_best"].iloc[0])
+
+    out["kappa"] = kappa
+    out["tau_star"] = tau_star
+    out["saving_vs_tuned_baseline"] = (ref - out["cost_at_tau_star"]) / ref
+    out["saving_best_vs_tuned_baseline"] = (ref - out["cost_best"]) / ref
+    return out.sort_values("cost_at_tau_star", na_position="last").reset_index(drop=True)[
+        ["family", "tau_star", "tau_star_setting", "cost_at_tau_star",
+         "saving_vs_tuned_baseline", "sla_at_tau_star", "alloc_at_tau_star",
+         "best_setting", "cost_best", "saving_best_vs_tuned_baseline", "kappa"]
+    ]
