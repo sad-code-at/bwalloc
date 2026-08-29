@@ -919,6 +919,19 @@ for ax, hours in zip(axes, sorted(transfer["horizon_hours"].unique())):
 fig.tight_layout()
 save(fig, "fig8_transfer.png")
 """),
+    md("### Figure 9 — zero-shot foundation model against trained and naive"),
+    code("""
+from bwalloc.plots import plot_foundation
+
+accuracy = pd.read_csv(RESULTS / "foundation_accuracy.csv")
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
+for ax, op in zip(axes, ("gp", "robi")):
+    plot_foundation(accuracy, pd.read_csv(RESULTS / f"horizon_{op}.csv"), op,
+                    ax=ax, legend=(op == "gp"))
+    ax.set_title(op.upper())
+fig.tight_layout()
+save(fig, "fig9_foundation.png")
+"""),
     code("""
 print(f"wrote {len(written)} figures to {FIGURES}")
 for name in written:

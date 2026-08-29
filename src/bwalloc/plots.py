@@ -328,3 +328,45 @@ def plot_transfer(transfer: pd.DataFrame, horizon_hours: float = 6.0, ax=None):
     ax.set_ylabel("RMSE (Gbps)")
     ax.legend(fontsize=7)
     return ax
+
+
+def plot_foundation(accuracy: pd.DataFrame, trained: pd.DataFrame, operator: str,
+                    ax=None, legend: bool = True):
+    """Zero-shot foundation model against per-operator training and the naive floor.
+
+    The figure carries the operator contrast that is the point of the experiment: on a
+    trace whose daily cycle lands near a whole number of samples the zero-shot model
+    tracks the trained ones, and on a trace where it does not the model loses phase and
+    falls behind even the naive baseline at the seasonal horizon.
+
+    Parameters
+    ----------
+    accuracy:
+        ``foundation_accuracy.csv``.
+    trained:
+        The matching ``horizon_{operator}.csv``.
+    """
+    ax = ax or plt.gca()
+    zero = (
+        accuracy[accuracy["operator"] == operator]
+        .groupby("lead_hours")["rmse"].mean()
+    )
+    table = trained.pivot_table(index="model", columns="lead_hours", values="rmse_mean")
+    learned = table.drop(
+        index=[i for i in table.index if "naive" in i or "persistence" in i],
+        errors="ignore",
+    ).min()
+
+    ax.plot(learned.index, learned.values, marker="o", lw=2.0,
+            color=PALETTE["primary"], label="best model trained on this operator")
+    ax.plot(zero.index, zero.values, marker="s", lw=2.0,
+            color=PALETTE["accent"], label="Chronos-Bolt, zero-shot")
+    if "persistence_h" in table.index:
+        ax.plot(table.columns, table.loc["persistence_h"], "--", marker="x", ms=4,
+                color="0.30", label="persistence at that lead")
+
+    ax.set_xlabel("forecast lead time (hours)")
+    ax.set_ylabel("RMSE (Gbps)")
+    if legend:
+        ax.legend(fontsize=7)
+    return ax

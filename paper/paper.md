@@ -45,6 +45,15 @@ cheaply** than a fixed-margin rule tuned with hindsight, while marginal calibrat
 *worse* than that rule on both traces — so conditioning the margin on predicted
 uncertainty pays even where the coverage comparison is underpowered.
 
+Two further results follow from the same sampling analysis. A zero-shot foundation
+model (Chronos-Bolt) trails per-operator training by only 7.5–18.6% on one trace but by
+47–92% on the other, and the difference is predictable in advance: a model that reads a
+bare sequence with no timestamps cannot hold phase when the daily cycle occupies 14.545
+samples rather than a whole number, so measuring the sampling interval tells an operator
+beforehand whether such a model will work at all. And a model pretrained on the *other*
+operator beats persistence by 23% on a newly deployed site with zero local training
+data, with the crossover to local training arriving after about a week.
+
 We report two negative results in full: correcting the feature design does not improve
 RMSE, and split-conformal coverage fails a ±2% check on real data — 2 of 30
 (operator, lead time, level) configurations pass, essentially all failures being
@@ -123,7 +132,9 @@ sparse, hand-made and noisy.
    on the *variance* of demand rather than its level, the demonstration that marginal
    calibration therefore fails inside high-risk contexts, and the repair (§6).
 5. A cold-start transfer study answering how much history a newly deployed site needs
-   (§7).
+   (§7), and a zero-shot foundation-model comparison showing that the sampling-rate
+   measurement of §3 predicts, in advance, whether such a model will work at all
+   (§8).
 
 ---
 
@@ -471,6 +482,95 @@ second demonstration of §4.
 
 ---
 
+## 8. Zero-shot foundation models
+
+With ~900 samples per site, is bespoke per-operator training worth it, or does a model
+that has never seen this network do just as well? We evaluate Chronos-Bolt Small
+strictly zero-shot -- no fitting, no fine-tuning, not even a scaling constant -- on the
+same fold schedule, lead times and test blocks as §4. It runs on CPU in about seven
+minutes.
+
+### 8.1 The answer depends entirely on the operator
+
+| lead | GP: zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.4 h | 11.18 | 10.40 | +7.5% | −7.8% |
+| 2.9 h | 13.53 | 11.85 | +14.2% | −22.3% |
+| 5.7 h | 13.50 | 12.36 | +9.2% | −46.2% |
+| 11.5 h | 14.41 | 12.79 | +12.7% | −53.8% |
+| 24.4 h | 15.20 | 12.82 | +18.6% | −16.8% |
+
+| lead | Robi: zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.7 h | 30.54 | 20.77 | +47.1% | **+2.7%** |
+| 3.3 h | 38.84 | 24.04 | +61.5% | −13.8% |
+| 6.6 h | 40.34 | 27.23 | +48.2% | −38.8% |
+| 11.6 h | 42.56 | 27.74 | +53.4% | −44.0% |
+| 24.8 h | 43.63 | 22.69 | +92.3% | **+64.7%** |
+
+On GP the zero-shot model is a credible system: it beats persistence at every lead,
+by as much as 54%, and trails a model trained on the site's own history by only
+7.5–18.6%. On Robi it trails by 47–92% and is *worse than persistence* at both the
+shortest and the longest lead.
+
+### 8.2 Why, and it is predictable in advance
+
+The gap is not random, and §3 explains it. A foundation model consumes a bare sequence
+of values with no timestamps. It cannot be told that a step is 86 minutes on one trace
+and 99 on the other, so it must infer periodicity from the sequence itself -- and on an
+irregularly sampled trace the daily cycle does not occupy a whole number of steps:
+
+| | sampling gap | exact daily period | misregistration |
+|---|---|---|---|
+| GP | 86 min | 16.744 samples | 0.256 samples/day |
+| Robi | 99 min | **14.545 samples** | **0.455 samples/day** |
+
+Robi's cycle slips almost twice as fast. Over the 55-day span that is ~25 samples of
+accumulated drift, about 1.7 complete cycles, against GP's ~14. A sequence model with
+no clock cannot hold phase against that, and the consequence is exactly where theory
+says it should be: **the worst result of the entire experiment is Robi at the 24-hour
+horizon (+92% against trained, +65% against persistence), the one setting where the
+daily cycle is the whole signal.** The naive baseline wins there simply by stepping
+back one *measured* cycle -- the thing the foundation model cannot do.
+
+This makes the sampling-rate correction of §3 more than a repair of prior work. It is
+a *diagnostic*: measuring the sampling interval tells an operator in advance whether a
+timestamp-blind foundation model will work on their trace. We are not aware of this
+being stated in the zero-shot forecasting literature, and it is cheap to check.
+
+### 8.3 Its quantiles cannot be used for provisioning as they come
+
+Chronos-Bolt is quantile-native, so it reaches the allocation layer of §5 with no
+quantile-regression step. But its quantile head was trained on levels 0.1 to 0.9 only,
+and a request above that is silently clipped -- a τ = 0.95 request returns the τ = 0.90
+numbers unchanged. Since τ* = κ/(1+κ), a ceiling of 0.9 corresponds to a cost asymmetry
+of only κ = 9. An operator for whom under-provisioning costs 20× more needs
+τ* = 0.952 and cannot obtain it from the model at all.
+
+Nor are the levels it *can* express well calibrated:
+
+| operator | τ | zero-shot achieved | conformalised | capacity (zero-shot → conformal) |
+|---|---|---|---|---|
+| GP | 0.80 | 0.791 | 0.815 | 1.112 → 1.124 |
+| GP | 0.90 | 0.886 | 0.903 | 1.166 → 1.183 |
+| GP | 0.95 | 0.886 *(clipped)* | 0.941 | 1.166 → 1.225 |
+| Robi | 0.80 | **0.662** | 0.813 | 1.148 → 1.245 |
+| Robi | 0.90 | **0.786** | 0.909 | 1.230 → 1.328 |
+| Robi | 0.95 | 0.786 *(clipped)* | 0.950 | 1.230 → 1.389 |
+
+On Robi the zero-shot 80% interval delivers 66%. Split-conformal calibration on
+held-out residuals repairs every level on both traces, including the ones the model
+cannot express natively.
+
+So the allocation machinery of §5 is not an alternative to the foundation model; it is
+what makes the foundation model deployable. That is the useful synthesis: **a zero-shot
+forecaster supplies the point prediction cheaply, and conformal calibration supplies
+the service-level guarantee it cannot provide itself.**
+
+*Figure 9: zero-shot against trained and naive, both operators.*
+
+---
+
 ## 9. A negative result on coverage, and its repair
 
 Enforcing the ±2% coverage check on real backtest output rather than synthetic data:
@@ -555,11 +655,16 @@ allocation is *worse* than that heuristic on both traces. The saving comes speci
 from conditioning the margin on predicted uncertainty.
 
 Correcting the **sampling assumption** is what makes anything comparable across sites,
-and it pays an unanticipated dividend: because lags are defined in wall-clock hours
-rather than sample counts, a model trained on one operator transfers to the other.
-Given only enough history to fix a new site's scale, a borrowed model is 23% better
+and it pays two unanticipated dividends. Because lags are defined in wall-clock hours
+rather than sample counts, a model trained on one operator transfers to the other:
+given only enough history to fix a new site's scale, a borrowed model is 23% better
 than persistence with zero training data of its own, and the crossover to training
-locally arrives after about a week.
+locally arrives after about a week. And the same measurement turns out to *predict*
+when a zero-shot foundation model will fail — such a model reads a bare sequence with no
+clock, so it cannot hold phase against a daily cycle that occupies 14.545 samples, and
+it duly collapses on the trace where that misregistration is worst while remaining
+competitive on the trace where it is not. Measuring the sampling interval is a cheap
+diagnostic for a decision operators now actually face.
 
 On the context-conditional claim we are deliberately careful. That marginal calibration
 *fails* inside high-variance contexts is established: at τ = 0.95 its elevated-risk
@@ -604,9 +709,7 @@ python experiments/run_coverage_gate.py
 
 ## Still to do
 
-- **C3**: zero-shot foundation-model baselines (Chronos-Bolt, TimesFM) on the same
-  folds. The question — *with ~900 samples per site, is bespoke per-operator training
-  worth it?* — confronts the dataset's main weakness directly. Needs a GPU runtime.
-- §1 and §10 prose; related-work positioning.
-- Per-group Clopper–Pearson intervals should be quoted inline in §6.2, not only in the
-  CSV.
+- Related-work positioning (citations are listed at the end of the study plan).
+- Conversion to the venue's LaTeX template.
+- Optional: TimesFM alongside Chronos-Bolt in §8, and a per-group *online* calibration
+  combining §6 and §9 — the clearest open methodological question this work raises.

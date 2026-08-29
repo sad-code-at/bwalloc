@@ -471,13 +471,82 @@ Table: `transfer_robi_to_gp.csv`. Figure: `fig8_transfer.png`.
 
 ---
 
+## C3 — zero-shot foundation models, done, and it validates C1 (NEW, verified)
+
+`experiments/run_foundation.py`, Chronos-Bolt Small, strictly zero-shot on the same
+folds/leads/test blocks as `run_horizon.py`. CPU, ~7 minutes, no GPU.
+
+**The answer depends entirely on the operator**, which is the finding.
+
+| lead | GP zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.4 h | 11.18 | 10.40 | +7.5% | −7.8% |
+| 5.7 h | 13.50 | 12.36 | +9.2% | −46.2% |
+| 11.5 h | 14.41 | 12.79 | +12.7% | −53.8% |
+| 24.4 h | 15.20 | 12.82 | +18.6% | −16.8% |
+
+| lead | Robi zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.7 h | 30.54 | 20.77 | +47.1% | **+2.7%** |
+| 6.6 h | 40.34 | 27.23 | +48.2% | −38.8% |
+| 11.6 h | 42.56 | 27.74 | +53.4% | −44.0% |
+| 24.8 h | 43.63 | 22.69 | **+92.3%** | **+64.7%** |
+
+GP: a credible zero-shot system — beats persistence at every lead, trails bespoke
+training by only 7.5–18.6%. Robi: trails by 47–92% and loses to persistence at the
+shortest and longest leads.
+
+### Why — and this is the part worth writing up
+
+A foundation model reads a bare sequence with **no timestamps**. It cannot know a step
+is 86 min on one trace and 99 on the other, so it must infer the cycle from the
+sequence — and under irregular sampling the daily cycle is not a whole number of steps:
+
+| | gap | exact daily period | misregistration |
+|---|---|---|---|
+| GP | 86 min | 16.744 samples | 0.256 samples/day |
+| Robi | 99 min | **14.545** | **0.455 samples/day** |
+
+Robi slips ~2× faster: ~25 samples (1.7 cycles) of drift over 55 days against GP's ~14.
+And the worst single result in the experiment is **Robi at 24 h**, the one setting where
+the daily cycle *is* the signal. The naive baseline wins there by stepping back one
+**measured** cycle — precisely what the model cannot do.
+
+**So C1 is not just a repair of the senior's work; it is a diagnostic.** Measuring the
+sampling interval tells you in advance whether a timestamp-blind foundation model will
+work on your trace. Lead with this — it is the most novel thing C3 produced.
+
+### Its quantiles are not usable for provisioning as they come
+
+Chronos-Bolt's quantile head was trained on 0.1–0.9 **only**; τ=0.95 is silently
+clipped to τ=0.90 and returns identical numbers. Via τ* = κ/(1+κ) that ceiling is a
+cost ratio of just **κ = 9**. Pinned in `test_native_quantile_ceiling_caps_the_expressible_cost_ratio`.
+
+| operator | τ | zero-shot | conformalised |
+|---|---|---|---|
+| GP | 0.80 | 0.791 | 0.815 |
+| GP | 0.90 | 0.886 | 0.903 |
+| GP | 0.95 | 0.886 *(clipped)* | 0.941 |
+| Robi | 0.80 | **0.662** | 0.813 |
+| Robi | 0.90 | **0.786** | 0.909 |
+| Robi | 0.95 | 0.786 *(clipped)* | 0.950 |
+
+Robi's zero-shot 80% interval delivers 66%. Conformal repairs every level on both
+traces. The synthesis for the paper: **the foundation model supplies a cheap point
+forecast; conformal calibration supplies the service-level guarantee it cannot.**
+
+Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
+`fig9_foundation.png`. Notebook: `06_foundation_models.ipynb`.
+
+---
+
 ## What is still not done
 
-- **C3 — zero-shot foundation models** (Chronos-Bolt, TimesFM). Not started, and the
-  only remaining contribution from the plan. A GPU makes it faster but is not required:
-  Chronos-Bolt Small is ~48M parameters and these are 900-point series, so CPU
-  inference is minutes, not hours. Colab's free T4 is the easy route; a local CPU run
-  is also viable. TimesFM is the heavier of the two — try Chronos-Bolt first.
+- **TimesFM** alongside Chronos-Bolt in C3. Optional; Chronos-Bolt already answers
+  the question and TimesFM is the heavier install.
+- **A per-group online calibration**, combining the context-conditional idea with ACI.
+  This is the clearest open methodological question the work raises — see the ACI
+  section above for why.
 - **The paper.** `paper/paper.md` is a complete draft — abstract, introduction,
   all seven results sections, limitations and conclusion, every number sourced from
   `experiments/results/`. What remains is related-work positioning (the citations are
@@ -510,6 +579,7 @@ python experiments/run_benchmark.py            # ~4 min
 python experiments/run_allocation.py           # ~10 min
 python experiments/run_horizon.py              # ~20 min
 python experiments/run_transfer.py              # ~2 min
+python experiments/run_foundation.py           # ~7 min, needs chronos-forecasting
 python experiments/run_coverage_gate.py        # instant, reads CSVs only
 python notebooks/_build.py                     # regenerate the notebooks
 ```
