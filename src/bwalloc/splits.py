@@ -56,6 +56,7 @@ def rolling_origin(
     min_train: int | None = None,
     calib_frac: float = 0.25,
     horizon: int | None = None,
+    embargo: int = 0,
 ) -> list[Fold]:
     """Build an expanding-window fold schedule over ``n`` ordered observations.
 
@@ -76,6 +77,13 @@ def rolling_origin(
         Set to 0 to disable (the calibration array is then empty).
     horizon:
         Test-block size. Defaults to an even division of the tail.
+    embargo:
+        Observations immediately before each test block to discard from both fitting
+        and calibration. Required for direct multi-horizon forecasting: a model
+        predicting *h* steps ahead is trained on pairs whose targets land *h-1* rows
+        after their forecast origin, so without an embargo of ``h-1`` the training
+        set contains outcomes that had not yet occurred when the first test forecast
+        was issued. At a one-step horizon this is 0 and nothing changes.
 
     Returns
     -------
@@ -87,6 +95,8 @@ def rolling_origin(
         raise ValueError("n_folds must be >= 1")
     if not 0.0 <= calib_frac < 1.0:
         raise ValueError("calib_frac must be in [0, 1)")
+    if embargo < 0:
+        raise ValueError("embargo must be >= 0")
 
     min_train = min_train if min_train is not None else max(30, int(0.40 * n))
     if min_train >= n:
@@ -104,7 +114,9 @@ def rolling_origin(
         if number == n_folds - 1:
             stop = n
 
-        fit_end = start
+        # The embargoed rows sit between the fit window and the test block and belong
+        # to neither, so they are removed before the calibration slice is carved out.
+        fit_end = max(0, start - embargo)
         n_calib = int(round(calib_frac * fit_end))
         # Calibration must be large enough to express the quantiles we intend to
         # request; conformal.py enforces the precise bound per requested tau.

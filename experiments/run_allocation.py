@@ -96,6 +96,11 @@ def frontier(operator: str, X, y, folds, history_source, groups) -> pd.DataFrame
             "conformal_marginal": (
                 SplitConformal().calibrate(y_ca.to_numpy(), pred_ca), {}
             ),
+            # Multiplicative margin, so the comparison against the fixed-margin rule
+            # is like-for-like: both scale with the level of demand.
+            "conformal_relative": (
+                SplitConformal(relative=True).calibrate(y_ca.to_numpy(), pred_ca), {}
+            ),
             "conformal_adaptive": (
                 LocallyAdaptiveConformal().calibrate(
                     y_ca.to_numpy(), pred_ca, sigma_calib=sigma_model.predict(X_ca)
@@ -170,7 +175,8 @@ def main() -> None:
 
         # Compare each conformal family against the incumbent fixed-margin rule.
         savings = []
-        for family in ("conformal_adaptive", "conformal_marginal", "quantile"):
+        for family in ("conformal_relative", "conformal_adaptive",
+                       "conformal_marginal", "quantile"):
             for target in (0.01, 0.02, 0.05, 0.10):
                 row = capacity_saving_at_equal_sla(
                     pareto, family_a=family, family_b="fixed_margin",

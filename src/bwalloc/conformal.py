@@ -13,7 +13,10 @@ Three variants live here, in increasing order of what they assume:
 
 :class:`SplitConformal`
     One global correction. Guarantees *marginal* coverage: correct on average over all
-    conditions, with no promise about any particular subpopulation.
+    conditions, with no promise about any particular subpopulation. Its ``relative``
+    option calibrates a percentage margin instead of an absolute one, which is the
+    like-for-like comparison against the multiplicative fixed-margin rule operators
+    actually use.
 
 :class:`LocallyAdaptiveConformal`
     Scales the correction by a fitted uncertainty estimate ``sigma_hat(x)``, so the
@@ -93,23 +96,55 @@ class ConformalCalibrator:
 
 @dataclass
 class SplitConformal(ConformalCalibrator):
-    """Marginal split-conformal calibration.
+    """Marginal split-conformal calibration, additive or multiplicative.
 
     Scores are signed residuals ``y - y_hat``; the allocation is
     ``y_hat + q_tau(residuals)``. One-sided by construction, because provisioning only
     cares about the upper edge -- allocating far above demand is wasteful but never an
     SLA breach.
+
+    Setting ``relative=True`` calibrates on *proportional* residuals
+    ``(y - y_hat) / y_hat`` and allocates ``y_hat * (1 + q_tau)``, making the margin a
+    percentage of forecast demand rather than a fixed number of Gbps.
+
+    Why the option exists
+    ---------------------
+    The incumbent rule this project is measured against -- ``A = 1.3 * y_hat`` -- is
+    multiplicative, while additive conformal adds the same absolute margin at 3 a.m.
+    as at peak. On traces whose level swings by roughly 2x within a day that is a real
+    handicap, and comparing the two head-to-head without it attributes to the *method*
+    what is really an artefact of its parameterisation. The relative variant removes
+    that confound: it is the same conformal guarantee, stated on the same scale as the
+    baseline it is being asked to beat.
+
+    Forecasts are floored at a small positive fraction of their mean before dividing,
+    since a near-zero prediction would otherwise send the proportional score to
+    infinity.
     """
 
+    relative: bool = False
+    floor_frac: float = 0.05
     name: str = "split_conformal"
     residuals_: np.ndarray | None = field(default=None, init=False)
+    _floor: float = field(default=1.0, init=False)
+
+    def __post_init__(self) -> None:
+        if self.relative and self.name == "split_conformal":
+            self.name = "relative_split_conformal"
+
+    def _safe(self, p: np.ndarray) -> np.ndarray:
+        return np.maximum(p, self._floor)
 
     def calibrate(self, y_calib, pred_calib, **kwargs) -> "SplitConformal":
         y = np.asarray(y_calib, dtype=float).ravel()
         p = np.asarray(pred_calib, dtype=float).ravel()
         if len(y) != len(p):
             raise ValueError("y_calib and pred_calib must have equal length.")
-        self.residuals_ = y - p
+        if self.relative:
+            self._floor = self.floor_frac * float(np.mean(np.abs(p))) or 1.0
+            self.residuals_ = (y - p) / self._safe(p)
+        else:
+            self.residuals_ = y - p
         return self
 
     def quantile(self, tau: float) -> float:
@@ -118,7 +153,10 @@ class SplitConformal(ConformalCalibrator):
         return _conformal_quantile(self.residuals_, tau)
 
     def allocate(self, pred_test, tau: float, **kwargs) -> np.ndarray:
-        return np.asarray(pred_test, dtype=float).ravel() + self.quantile(tau)
+        p = np.asarray(pred_test, dtype=float).ravel()
+        if self.relative:
+            return self._safe(p) * (1.0 + self.quantile(tau))
+        return p + self.quantile(tau)
 
 
 @dataclass

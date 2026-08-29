@@ -18,6 +18,9 @@ models
     Point and quantile forecasters behind one interface.
 evaluate
     Backtest harness; every model scored on identical folds.
+forecast
+    Multi-horizon forecasting -- the lead time an allocator actually needs, rather
+    than one-step-ahead with the previous observation already in hand.
 metrics
     Accuracy (RMSE/MAE/MASE/pinball) and allocation (SLA rate, overprovisioning, cost).
 context
@@ -70,6 +73,7 @@ from . import (  # noqa: E402
     data,
     evaluate,
     features,
+    forecast,
     metrics,
     models,
     splits,
@@ -84,6 +88,7 @@ __all__ = [
     "data",
     "evaluate",
     "features",
+    "forecast",
     "metrics",
     "models",
     "splits",

@@ -17,8 +17,14 @@ from bwalloc.conformal import (
     SplitConformal,
     min_calibration_size,
 )
-from bwalloc.data import load, sampling_profile
+from bwalloc.data import TARGET, load, sampling_profile
 from bwalloc.features import FeatureConfig, assert_no_leakage, build_features
+from bwalloc.forecast import (
+    direct_design,
+    history_row,
+    persistence_at_horizon,
+    seasonal_naive_at_horizon,
+)
 from bwalloc.metrics import mase, rmse, sla_violation_rate
 from bwalloc.splits import rolling_origin
 
@@ -271,3 +277,163 @@ def test_optimal_tau_is_the_cost_minimiser():
     candidates = np.quantile(y, [0.70, 0.80, 0.85, tau, 0.95, 0.98])
     costs = [asymmetric_cost(y, np.full(len(y), c), kappa=kappa) for c in candidates]
     assert int(np.argmin(costs)) == 3
+
+
+# --------------------------------------------------------------------------- #
+# Multi-horizon forecasting
+# --------------------------------------------------------------------------- #
+
+def test_history_row_matches_build_features(trace):
+    """The recursive rollout's feature builder must agree with the batch one exactly.
+
+    ``forecast.history_row`` re-implements the lag and rolling blocks so the recursive
+    rollout can substitute predictions for observations it does not have. That
+    duplication is the obvious place for the two paths to drift apart -- one shifted
+    window in either file and the recursive results become quietly wrong -- so this
+    pins them together on real data.
+    """
+    _, df, profile = trace
+    config = FeatureConfig()
+    X, _ = build_features(df, profile, config)
+    y_full = df[TARGET].astype(float)
+    positions = pd.DatetimeIndex(y_full.index).get_indexer(pd.DatetimeIndex(X.index))
+
+    for row in (0, 1, len(X) // 3, len(X) // 2, len(X) - 1):
+        rebuilt = history_row(y_full.to_numpy(), positions[row], profile, config)
+        assert rebuilt, "history_row produced no columns for the default config"
+        for name, value in rebuilt.items():
+            assert name in X.columns
+            assert value == pytest.approx(X[name].iloc[row], rel=1e-9, abs=1e-9)
+
+
+def test_direct_design_reduces_to_the_one_step_problem(trace):
+    """At a one-step horizon the re-aligned design must be the original one.
+
+    The horizon study has to meet the existing benchmark at its first point, otherwise
+    a degradation curve cannot be read as degradation.
+    """
+    _, df, profile = trace
+    X, y = build_features(df, profile, FeatureConfig())
+    X_h, y_h, origins = direct_design(X, y, steps=1)
+
+    assert list(X_h.columns) == sorted(X_h.columns, key=list(X_h.columns).index)
+    assert np.allclose(X_h[X.columns].to_numpy(), X.to_numpy())
+    assert np.array_equal(y_h.to_numpy(), y.to_numpy())
+    assert list(origins) == list(X.index)
+
+
+def test_direct_design_reads_history_at_the_origin_not_the_target(trace):
+    """History columns must lag by the full horizon; calendar columns must not.
+
+    Reading a lag at the target timestamp would hand the model an observation that has
+    not been taken yet -- the multi-horizon version of the leak this project exists to
+    correct. Fourier terms are exempt because wall-clock time is known in advance.
+    """
+    _, df, profile = trace
+    X, y = build_features(df, profile, FeatureConfig())
+    steps = 4
+    X_h, y_h, _ = direct_design(X, y, steps)
+    lead = steps - 1
+
+    # Row r of the re-aligned frame targets row r + lead of the original.
+    assert X_h["lag_1.5h"].iloc[10] == pytest.approx(X["lag_1.5h"].iloc[10])
+    assert X_h["day_sin1"].iloc[10] == pytest.approx(X["day_sin1"].iloc[10 + lead])
+    assert y_h.iloc[10] == pytest.approx(y.iloc[10 + lead])
+
+
+def test_horizon_baseline_is_not_the_one_step_baseline(trace):
+    """An h-step model must be scored against an h-step naive forecaster.
+
+    Comparing a 24-hour-ahead forecast to persistence-at-one-step is the flattering
+    comparison, and it is how multi-step results are most often overstated.
+    """
+    _, df, profile = trace
+    _, y = build_features(df, profile, FeatureConfig())
+    steps = profile.lag_for_hours(24.0)
+
+    naive_h = persistence_at_horizon(y, steps)
+    assert np.array_equal(naive_h.to_numpy()[steps:], y.to_numpy()[:-steps])
+
+    # Away from the seasonal period it must be strictly worse than the one-step
+    # naive, or the horizon is not really costing anything. The daily lag itself is
+    # deliberately excluded: on Robi, yesterday's value at the same hour (RMSE 26.5)
+    # is a *better* forecast than the most recent observation (29.4), because the
+    # daily cycle there is stronger than short-run persistence. That inversion is a
+    # finding, not a violation -- and it is only visible once the daily period is
+    # measured as 15 samples rather than assumed to be 24.
+    mid = max(2, steps // 2)
+    naive_mid = persistence_at_horizon(y, mid)
+    one_step = y.shift(1)
+    both = ~(naive_mid.isna() | one_step.isna())
+    assert rmse(y[both], naive_mid[both]) > rmse(y[both], one_step[both])
+
+
+def test_seasonal_naive_at_horizon_never_reads_the_future(trace):
+    """The seasonal baseline must step back a whole number of observable cycles."""
+    _, df, profile = trace
+    _, y = build_features(df, profile, FeatureConfig())
+    period = profile.daily_period
+    for steps in (1, 2, period - 1, period, period + 1):
+        shifted = seasonal_naive_at_horizon(y, steps, period)
+        offset = int(shifted.notna().argmax())
+        assert offset >= steps, (
+            f"seasonal naive at {steps} steps reads only {offset} back, "
+            "which was not observable at the forecast origin"
+        )
+        assert offset % period == 0
+
+
+def test_embargo_prevents_training_on_post_origin_outcomes():
+    """With an embargo of k, no fitted row may sit within k of the test block.
+
+    Direct multi-horizon training pairs carry targets h-1 rows after their origin, so
+    without the embargo the model is fitted on outcomes that had not occurred when the
+    first test forecast was issued. That is a subtler restatement of the leak in §1.2
+    of the audit, and it inflates long-horizon results specifically.
+    """
+    for embargo in (0, 1, 5, 16):
+        folds = rolling_origin(400, n_folds=4, calib_frac=0.25, embargo=embargo)
+        for fold in folds:
+            fitted = np.concatenate([fold.train, fold.calib])
+            assert fitted.max() <= fold.test[0] - 1 - embargo
+            assert len(fold.train) > 0
+
+
+# --------------------------------------------------------------------------- #
+# Relative (multiplicative) conformal calibration
+# --------------------------------------------------------------------------- #
+
+def test_relative_conformal_scales_the_margin_with_demand():
+    """The relative variant must produce a constant allocation *ratio*.
+
+    Additive conformal adds the same Gbps at 3 a.m. as at peak; the fixed-margin rule
+    it is measured against is multiplicative. Comparing the two without this option
+    charges the method for its parameterisation rather than its calibration.
+    """
+    rng = np.random.default_rng(0)
+    pred = rng.uniform(20, 120, 400)
+    y = pred * (1 + rng.normal(0, 0.1, 400))
+
+    additive = SplitConformal().calibrate(y, pred)
+    relative = SplitConformal(relative=True).calibrate(y, pred)
+
+    a_add = additive.allocate(pred, 0.9)
+    a_rel = relative.allocate(pred, 0.9)
+
+    assert np.ptp(a_rel / pred) == pytest.approx(0.0, abs=1e-9)
+    assert np.ptp(a_add / pred) > 0.3
+    assert relative.name == "relative_split_conformal"
+
+
+def test_relative_conformal_still_delivers_nominal_coverage():
+    """Changing the score's scale must not cost the coverage guarantee."""
+    rng = np.random.default_rng(1)
+    pred_cal = rng.uniform(20, 120, 600)
+    y_cal = pred_cal * (1 + rng.normal(0, 0.15, 600))
+    pred_te = rng.uniform(20, 120, 4000)
+    y_te = pred_te * (1 + rng.normal(0, 0.15, 4000))
+
+    cal = SplitConformal(relative=True).calibrate(y_cal, pred_cal)
+    for tau in (0.8, 0.9, 0.95):
+        achieved = float(np.mean(y_te <= cal.allocate(pred_te, tau)))
+        assert abs(achieved - tau) < 0.02, f"tau={tau}: achieved {achieved:.3f}"
