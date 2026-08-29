@@ -14,9 +14,12 @@ statsmodels>=0.14       # STL, ARIMA, Holt-Winters comparisons in the audit note
 # repository currently uses torch: every model here is scikit-learn or XGBoost and
 # runs on CPU. bwalloc.set_seed() seeds torch only if it happens to be installed.
 
-# Optional — zero-shot time-series foundation model baselines
-# chronos-forecasting>=1.4
-# timesfm>=1.2
+# Optional — zero-shot time-series foundation model baselines.
+# Needed only by experiments/run_foundation.py. Pulls in torch and transformers;
+# runs on CPU (Chronos-Bolt Small is ~48M parameters against 900-point series).
+# The runner handles both the 1.x `context=` and 2.x `inputs=` argument names.
+chronos-forecasting>=2.0
+# timesfm>=1.2          # heavier; not used here
 
 # Development
 pytest>=7.4

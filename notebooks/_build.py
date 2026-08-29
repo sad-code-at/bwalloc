@@ -704,7 +704,86 @@ cold start has.
 """),
 ]
 
-NOTEBOOKS["06_paper_figures.ipynb"] = [
+NOTEBOOKS["06_foundation_models.ipynb"] = [
+    md("""
+# 06 — Zero-shot foundation models
+
+The question this dataset's main weakness makes unavoidable:
+
+> **With only ~900 samples per site, is bespoke per-operator training worth it, or does
+> a foundation model that has never seen this network do just as well?**
+
+Chronos-Bolt is evaluated strictly zero-shot — no fitting, no fine-tuning, not even a
+scaling constant — on exactly the fold schedule, lead times and test blocks that
+notebook 04 uses, so the numbers drop into the same table.
+
+Two things make this more than a routine extra baseline.
+
+**It is quantile-native.** Chronos-Bolt emits quantiles directly, so it plugs into the
+allocation layer with no quantile-regression step. We can therefore ask whether its
+*uncalibrated* quantiles deliver their nominal service level.
+
+**It assumes regular sampling, which these traces violate.** A foundation model
+consumes a sequence of values with no timestamps. It cannot know that a step is 86
+minutes on one trace and 99 on the other. Everything notebook 00 corrects by *measuring*
+the sampling rate, this model class structurally cannot see.
+
+Runs on CPU — no GPU needed. `pip install chronos-forecasting`, then
+`python experiments/run_foundation.py` (~7 min).
+"""),
+    code(BOOTSTRAP),
+    md("## Zero-shot against models trained on this operator"),
+    code("""
+accuracy = pd.read_csv(RESULTS / "foundation_accuracy.csv")
+zero = (
+    accuracy.groupby(["operator", "model", "lead_hours"])
+    .agg(rmse_mean=("rmse", "mean"), rmse_std=("rmse", "std"))
+    .reset_index()
+)
+
+for operator in ("gp", "robi"):
+    trained = pd.read_csv(RESULTS / f"horizon_{operator}.csv")
+    table = trained.pivot_table(index="model", columns="lead_hours", values="rmse_mean")
+    z = zero[zero["operator"] == operator].pivot_table(
+        index="model", columns="lead_hours", values="rmse_mean"
+    )
+    print(operator.upper())
+    display(pd.concat([table, z]).round(2))
+"""),
+    md("## Do its own quantiles deliver their nominal level?"),
+    code("""
+calibration = pd.read_csv(RESULTS / "foundation_calibration.csv")
+calibration["c"] = calibration["n"] * calibration["coverage"]
+pooled = (
+    calibration.groupby(["operator", "model", "tau", "method"])
+    .agg(c=("c", "sum"), n=("n", "sum"),
+         natively_expressible=("natively_expressible", "first"))
+    .assign(achieved=lambda d: d["c"] / d["n"])
+    .reset_index()
+)
+pooled["gap"] = pooled["achieved"] - pooled["tau"]
+pooled.pivot_table(index=["operator", "tau", "natively_expressible"],
+                   columns="method", values=["achieved", "gap"]).round(3)
+"""),
+    md("""
+### The ceiling that matters for provisioning
+
+Chronos-Bolt's quantile head was trained on levels **0.1 to 0.9 only**. A request for
+τ = 0.95 is silently clipped to τ = 0.90 and returns the same numbers — which is why the
+`natively_expressible` column is False there.
+
+That is not a configuration detail, it is a limit on what the model can be used for.
+Since τ\\* = κ/(1+κ), a ceiling of 0.9 corresponds to a cost asymmetry of only **κ = 9**.
+An operator for whom under-provisioning costs 20× more than over-provisioning needs
+τ\\* = 0.952, and cannot get it from the model's own quantile head at all.
+
+So for this application, calibration on top of the foundation model is not an optional
+refinement — it is what makes the model usable. The `conformal` rows show split-conformal
+calibration on held-out residuals restoring the levels the model cannot express itself.
+"""),
+]
+
+NOTEBOOKS["07_paper_figures.ipynb"] = [
     md("""
 # 05 — Paper figures
 
