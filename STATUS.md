@@ -445,8 +445,10 @@ Table: `transfer_robi_to_gp.csv`. Figure: `fig8_transfer.png`.
 ## What is still not done
 
 - **C3 — zero-shot foundation models** (Chronos-Bolt, TimesFM). Not started, and the
-  only remaining contribution from the plan. Needs a GPU Colab runtime; do not attempt
-  locally on Windows CPU.
+  only remaining contribution from the plan. A GPU makes it faster but is not required:
+  Chronos-Bolt Small is ~48M parameters and these are 900-point series, so CPU
+  inference is minutes, not hours. Colab's free T4 is the easy route; a local CPU run
+  is also viable. TimesFM is the heavier of the two — try Chronos-Bolt first.
 - **The paper itself.** No draft exists. Everything it needs is now in
   `experiments/results/` and `paper/figures/`.
 - Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a

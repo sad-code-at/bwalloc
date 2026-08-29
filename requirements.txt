@@ -10,8 +10,9 @@ xgboost>=2.0            # 2.0+ needed for objective="reg:quantileerror"
 lightgbm>=4.0
 statsmodels>=0.14       # STL, ARIMA, Holt-Winters comparisons in the audit notebook
 
-# Optional — deep sequence models (CNN/LSTM/GRU comparisons)
-torch>=2.0
+# Optional — deep sequence models (CNN/LSTM/GRU comparisons). Nothing in this
+# repository currently uses torch: every model here is scikit-learn or XGBoost and
+# runs on CPU. bwalloc.set_seed() seeds torch only if it happens to be installed.
 
 # Optional — zero-shot time-series foundation model baselines
 # chronos-forecasting>=1.4
