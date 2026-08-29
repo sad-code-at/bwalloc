@@ -214,12 +214,12 @@ def main() -> None:
             cov = coverage_table(per_fold, "coverage")
             ratio = coverage_table(per_fold, "mean_allocation_ratio")
             overall = cov[cov["group"] == "ALL"]
+            methods = [c for c in cov.columns if c not in ("tau", "group")]
             for _, r in overall.iterrows():
                 rr = ratio[(ratio["tau"] == r["tau"]) & (ratio["group"] == "ALL")]
+                achieved = " / ".join(f"{m} {r[m]:.3f}" for m in methods)
                 print(
-                    f"      tau={r['tau']:.2f}  coverage "
-                    f"marginal {r['marginal']:.3f} / adaptive {r['adaptive']:.3f} / "
-                    f"mondrian {r['mondrian']:.3f}   "
+                    f"      tau={r['tau']:.2f}  coverage {achieved}   "
                     f"capacity {float(rr['marginal'].iloc[0]):.3f}x demand"
                 )
 
