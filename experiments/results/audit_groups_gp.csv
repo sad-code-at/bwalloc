@@ -1,0 +1,3 @@
+operator,group,n_rows,approx_calib,max_supported_tau
+gp,baseline,706,176,0.99
+gp,elevated_risk,199,50,0.98

@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+venv/
+.venv/
+
+# Run logs (regenerable; the CSVs in experiments/results are tracked deliberately)
+experiments/results/*.log
+
+# OS
+Thumbs.db
+.DS_Store

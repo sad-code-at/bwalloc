@@ -1,0 +1,7 @@
+operator,ablation,n_features,best_model,rmse_mean,rmse_std
+gp,lags_only,8,random_forest,9.980842420637542,1.1160666984214997
+gp,no_fourier,17,random_forest,9.997645157254249,1.1180713861328966
+gp,original_style,19,random_forest,10.109054577825786,1.1417773627568142
+gp,original_correct_period,19,random_forest,10.119683433362644,1.1677068489063873
+gp,no_context,16,random_forest,10.409981847069698,1.2428547937082446
+gp,full,25,random_forest,10.41076104255782,1.187649652004695

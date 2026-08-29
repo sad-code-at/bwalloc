@@ -1,0 +1,3 @@
+operator,n,span_days,median_gap_min,samples_per_day,daily_period,hours_spanned_by_lag24
+gp,905,54.1625,86.0,16.74418604651163,17,34.4
+robi,888,60.93125,99.0,14.545454545454545,15,39.6

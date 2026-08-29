@@ -1,0 +1,7 @@
+operator,ablation,n_features,best_model,rmse_mean,rmse_std
+robi,original_style,15,xgboost,20.533864127692986,3.8416484453764594
+robi,full,21,random_forest,20.749242126041686,4.420192285386006
+robi,no_context,16,random_forest,20.81629541485392,4.421197401529778
+robi,original_correct_period,15,random_forest,21.386715015857295,4.835381467324459
+robi,lags_only,8,random_forest,21.77924675687312,4.844804651100579
+robi,no_fourier,13,random_forest,21.797582109624827,4.783774246950539

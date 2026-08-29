@@ -1,0 +1,3 @@
+operator,group,n_rows,approx_calib,max_supported_tau
+robi,baseline,799,200,0.99
+robi,elevated_risk,89,22,0.95

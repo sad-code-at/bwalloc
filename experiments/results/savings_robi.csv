@@ -1,0 +1,13 @@
+target_violation,alloc_a,alloc_b,capacity_saving,feasible,operator,family,setting_a,setting_b
+0.01,,,,False,robi,conformal_adaptive,,
+0.02,,1.5274418488924846,,False,robi,conformal_adaptive,,
+0.05,,1.425612392299652,,False,robi,conformal_adaptive,,
+0.1,1.3283479642074107,1.3237829357068198,-0.003448472085156076,True,robi,conformal_adaptive,0.95,0.3
+0.01,,,,False,robi,conformal_marginal,,
+0.02,,1.5274418488924846,,False,robi,conformal_marginal,,
+0.05,,1.425612392299652,,False,robi,conformal_marginal,,
+0.1,1.2978462662317152,1.3237829357068198,0.019592841677820872,True,robi,conformal_marginal,0.95,0.3
+0.01,,,,False,robi,quantile,,
+0.02,,1.5274418488924846,,False,robi,quantile,,
+0.05,,1.425612392299652,,False,robi,quantile,,
+0.1,1.3268856464942034,1.3237829357068198,-0.0023438214103635477,True,robi,quantile,0.98,0.3
