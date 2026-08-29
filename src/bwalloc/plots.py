@@ -127,11 +127,22 @@ def plot_pareto(pareto: pd.DataFrame, ax=None, target_violation: float | None = 
     return ax
 
 
-def plot_coverage_by_group(per_fold: pd.DataFrame, tau: float, ax=None):
+def plot_coverage_by_group(per_fold: pd.DataFrame, tau: float, ax=None,
+                           legend: bool = True, ylim: tuple[float, float] | None = None):
     """Achieved coverage per context group and method, against the nominal level.
 
     The context-conditional result: a marginally calibrated allocator meets its target
     overall while under-delivering inside the high-variance group.
+
+    Parameters
+    ----------
+    legend:
+        Draw the method legend. Set False on all but one panel of a grid; the legend
+        is large enough to sit on top of the bars otherwise.
+    ylim:
+        Fix the y-range. Pass the same value across a grid of panels -- with per-panel
+        autoscaling the bars are not comparable between panels even when the axes are
+        nominally shared.
     """
     ax = ax or plt.subplots(figsize=(7, 4))[1]
     df = per_fold[(per_fold["tau"] == tau) & (per_fold["error"] == "")].copy()
@@ -150,14 +161,17 @@ def plot_coverage_by_group(per_fold: pd.DataFrame, tau: float, ax=None):
                label=method, color=color)
 
     ax.axhline(tau, color=PALETTE["accent"], ls="--", lw=1.4)
-    ax.text(len(groups) - 0.4, tau, f" nominal {tau:.0%}", color=PALETTE["accent"],
-            fontsize=9, va="bottom", ha="right")
+    # Anchored left, where no bar group starts, so it cannot land under the legend.
+    ax.text(-0.45, tau, f"nominal {tau:.0%} ", color=PALETTE["accent"],
+            fontsize=8, va="bottom", ha="left")
     ax.set_xticks(x)
     ax.set_xticklabels([g.replace("_", " ") for g in groups])
     ax.set_ylabel("achieved coverage")
-    ax.set_ylim(min(0.6, table.min().min() - 0.05), 1.0)
+    ax.set_ylim(*(ylim or (min(0.6, table.min().min() - 0.05), 1.0)))
     ax.set_title(f"Per-context coverage at nominal τ = {tau:g}")
-    ax.legend(title="calibration")
+    if legend:
+        ax.legend(title="calibration", fontsize=8, title_fontsize=8,
+                  loc="lower center", bbox_to_anchor=(0.5, -0.42), ncol=len(methods))
     return ax
 
 

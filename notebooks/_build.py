@@ -770,12 +770,18 @@ save(fig, "fig3_pareto.png")
 """),
     md("### Figure 4 — the context-conditional result (GP) and its null (Robi)"),
     code("""
-fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharey=True)
-for row, op in zip(axes, ("gp", "robi")):
+# One legend for the grid, and one y-range: with per-panel autoscaling the bars are
+# not comparable across panels even when the axes are nominally shared.
+fig, axes = plt.subplots(2, 3, figsize=(13, 7.6), sharey=True)
+for r, op in enumerate(("gp", "robi")):
     per_fold = pd.read_csv(RESULTS / f"allocation_{op}_perfold.csv").fillna({"error": ""})
-    for ax, tau in zip(row, (0.80, 0.90, 0.95)):
-        plot_coverage_by_group(per_fold, tau=tau, ax=ax)
+    for c, tau in enumerate((0.80, 0.90, 0.95)):
+        ax = axes[r][c]
+        plot_coverage_by_group(per_fold, tau=tau, ax=ax,
+                               legend=(r == 1 and c == 1), ylim=(0.60, 1.0))
         ax.set_title(f"{op.upper()}  tau = {tau:.2f}")
+        if c:
+            ax.set_ylabel("")
 fig.tight_layout()
 save(fig, "fig4_coverage_by_group.png")
 """),

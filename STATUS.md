@@ -348,9 +348,27 @@ Marginal coverage (group = ALL), nominal versus achieved:
 On GP, ACI is essentially exact at all three levels. This closes the plan's Part 5
 coverage check, which had never been enforced on real output.
 
-Note the horizon rows in `coverage_gate.csv` (288 configurations total) still exclude
-ACI — `run_horizon.py` ran before `aci` was wired into `pipeline.py`. Re-run it to
-extend the fix across lead times.
+### And it holds as the forecast degrades
+
+`run_horizon.py` was re-run with `aci` wired in. GP, achieved coverage by lead time:
+
+| τ | 1.4 h | 2.9 h | 5.7 h | 11.5 h | 24.4 h |
+|---|---|---|---|---|---|
+| 0.80, **aci** | **0.803** | **0.803** | **0.806** | **0.817** | **0.798** |
+| 0.80, marginal | 0.784 | 0.767 | 0.727 | 0.754 | 0.775 |
+| 0.90, **aci** | **0.904** | **0.902** | **0.906** | **0.907** | **0.901** |
+| 0.90, marginal | 0.867 | 0.878 | 0.851 | 0.839 | 0.868 |
+| 0.95, **aci** | **0.947** | **0.946** | **0.949** | **0.945** | **0.950** |
+| 0.95, marginal | 0.927 | 0.957 | 0.915 | 0.909 | 0.924 |
+
+**All 15 GP configurations pass the ±2% gate under ACI**, at every lead time from 1.4
+to 24 hours, while static calibration drifts as far as 7 points below nominal (τ=0.80
+at 5.7 h) as the forecast degrades.
+
+For a deployable allocator this is the property that matters: the service level is
+maintained even where the forecast is weakest. Quote it as *"online calibration holds
+its nominal service level at every lead time from 1.4 to 24 hours, while static
+calibration drifts up to 7 points short as the forecast degrades."*
 
 ---
 
