@@ -567,17 +567,11 @@ study, by only ever evaluating at one step, was measuring in the one regime wher
 own models looked worst.
 """),
     code("""
+from bwalloc.plots import plot_horizon
+
 fig, ax = plt.subplots(figsize=(6.5, 4.2))
-for model in ("random_forest", "xgboost", "ridge"):
-    if model in table.index:
-        ax.plot(table.columns, table.loc[model], marker="o", label=model)
-for model, style in (("persistence_h", "--"), (f"seasonal_naive_{profile.daily_period}", ":")):
-    if model in table.index:
-        ax.plot(table.columns, table.loc[model], style, color="0.35", label=model)
-ax.set_xlabel("forecast lead time (hours)")
-ax.set_ylabel("RMSE (Gbps)")
+plot_horizon(acc, ax=ax)
 ax.set_title(f"{OPERATOR.upper()} — accuracy vs lead time")
-ax.legend(fontsize=8)
 fig.savefig(FIGURES / f"fig5_horizon_{OPERATOR}.png", dpi=200, bbox_inches="tight")
 """),
     md("## Direct versus recursive\n\nOne model per horizon, against one model applied "
@@ -694,22 +688,16 @@ for row, op in zip(axes, ("gp", "robi")):
 fig.tight_layout()
 save(fig, "fig4_coverage_by_group.png")
 """),
-    md("### Figure 5 — accuracy versus lead time"),
+    md("### Figure 5 — accuracy versus lead time\n\nThe multi-horizon result: the "
+       "learned models stay flat while the naive forecaster collapses, so the gap "
+       "between them — the value of learning — widens with lead time."),
     code("""
+from bwalloc.plots import plot_horizon
+
 fig, axes = plt.subplots(1, 2, figsize=(12, 4.2))
 for ax, op in zip(axes, ("gp", "robi")):
-    acc = pd.read_csv(RESULTS / f"horizon_{op}.csv")
-    table = acc.pivot_table(index="model", columns="lead_hours", values="rmse_mean")
-    for model in ("random_forest", "xgboost", "ridge"):
-        if model in table.index:
-            ax.plot(table.columns, table.loc[model], marker="o", label=model)
-    for model in table.index:
-        if "persistence" in model or "naive" in model:
-            ax.plot(table.columns, table.loc[model], "--", color="0.4", label=model)
-    ax.set_xlabel("forecast lead time (hours)")
-    ax.set_ylabel("RMSE (Gbps)")
+    plot_horizon(pd.read_csv(RESULTS / f"horizon_{op}.csv"), ax=ax)
     ax.set_title(op.upper())
-    ax.legend(fontsize=7)
 fig.tight_layout()
 save(fig, "fig5_horizon.png")
 """),
@@ -721,6 +709,27 @@ for ax, op in zip(axes, ("gp", "robi")):
     ax.set_title(op.upper())
 fig.tight_layout()
 save(fig, "fig6_flag_audit.png")
+"""),
+    md("""
+### Figure 7 — provisioning cost, the headline claim
+
+Bars are the cost at the level the theory prescribes from the cost ratio
+(τ* = κ/(1+κ)), so no test-set information enters the choice. The dashed line is the
+best the fixed-margin heuristic can do *with* hindsight about which margin hit which
+violation rate — the comparison is deliberately biased against the bars.
+
+Blue beats that line; red does not. Context-adaptive calibration is blue on both
+operators and marginal calibration is red on both, which is the whole argument.
+"""),
+    code("""
+from bwalloc.plots import plot_cost
+
+fig, axes = plt.subplots(1, 2, figsize=(12, 4.4))
+for ax, op in zip(axes, ("gp", "robi")):
+    plot_cost(pd.read_csv(RESULTS / f"cost_{op}.csv"), ax=ax)
+    ax.set_title(op.upper())
+fig.tight_layout()
+save(fig, "fig7_cost.png")
 """),
     code("""
 print(f"wrote {len(written)} figures to {FIGURES}")

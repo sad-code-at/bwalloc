@@ -199,3 +199,76 @@ def plot_flag_report(report: pd.DataFrame, ax=None):
     ax.set_xlabel("residual sd (flag on) / residual sd (flag off)")
     ax.set_title("Context acts on variance — red = significant (Levene p < 0.05)")
     return ax
+
+
+def plot_horizon(accuracy: pd.DataFrame, ax=None, models=("random_forest", "xgboost", "ridge")):
+    """Accuracy against forecast lead time, with the naive baselines at each lead.
+
+    The figure the multi-horizon argument rests on: the learned models stay roughly
+    flat while the naive forecaster degrades steeply, so the gap between them -- the
+    actual value of learning -- widens with lead time. The naive lines are drawn in
+    distinct styles because they behave very differently: persistence collapses, while
+    seasonal-naive is flat by construction (it always steps back a whole cycle).
+
+    Parameters
+    ----------
+    accuracy:
+        A ``horizon_{operator}.csv`` table.
+    """
+    ax = ax or plt.gca()
+    table = accuracy.pivot_table(index="model", columns="lead_hours", values="rmse_mean")
+
+    for model in models:
+        if model in table.index:
+            ax.plot(table.columns, table.loc[model], marker="o", lw=1.8, label=model)
+
+    naive_styles = {"persistence": ("--", "0.25"), "naive": (":", "0.45")}
+    for model in table.index:
+        for key, (style, colour) in naive_styles.items():
+            if key in model:
+                ax.plot(table.columns, table.loc[model], style, color=colour,
+                        lw=1.8, marker="x", ms=4, label=model)
+                break
+
+    ax.set_xlabel("forecast lead time (hours)")
+    ax.set_ylabel("RMSE (Gbps)")
+    ax.legend(fontsize=7, framealpha=0.9)
+    return ax
+
+
+def plot_cost(cost: pd.DataFrame, ax=None):
+    """Provisioning cost per policy family against the tuned fixed-margin rule.
+
+    Bars are the cost at the level the theory prescribes from the cost ratio, so no
+    test-set information enters the choice. The dashed line is the *best* the
+    fixed-margin heuristic can do with hindsight about which margin hit which
+    violation rate -- the comparison is deliberately biased against the bars.
+
+    Blue beats that line, red does not.
+
+    Parameters
+    ----------
+    cost:
+        A ``cost_{operator}.csv`` table from :func:`bwalloc.allocation.cost_comparison`.
+    """
+    ax = ax or plt.gca()
+    reference = cost[cost["family"] == "fixed_margin"]["cost_best"]
+    ranked = cost.dropna(subset=["cost_at_tau_star"]).sort_values("cost_at_tau_star")
+
+    colours = ["#2a7ab0" if s > 0 else "#b03a2a"
+               for s in ranked["saving_vs_tuned_baseline"]]
+    ax.barh(ranked["family"], ranked["cost_at_tau_star"], color=colours)
+    if not reference.empty:
+        ax.axvline(float(reference.iloc[0]), color="0.15", ls="--", lw=1.3,
+                   label="fixed margin, tuned with hindsight")
+        ax.legend(fontsize=7, loc="upper center", bbox_to_anchor=(0.5, -0.18))
+
+    tau_star = float(cost["tau_star"].iloc[0])
+    kappa = float(cost["kappa"].iloc[0])
+    # Raw string: without it Python turns the "\t" of "\tau" into a tab and mathtext
+    # renders the label as "au".
+    ax.set_xlabel(
+        rf"provisioning cost at $\kappa$={kappa:g}, $\tau^*$={tau_star:.3f}"
+    )
+    ax.invert_yaxis()
+    return ax

@@ -81,7 +81,29 @@ configurations miss the ±2% target, and 39 of the 41 miss by *under*-covering. 
 one-sidedness is diagnostic — split conformal assumes exchangeability, and a 55-day
 trace with a trend does not supply it. `AdaptiveConformalInference` is the remedy,
 updating the requested level online from realised breaches so long-run coverage
-converges without any exchangeability assumption.
+converges without any exchangeability assumption. It takes the gate from 3 of 18
+configurations passing to **14 of 18**, and on GP lands at 0.805 / 0.902 / 0.953
+against nominal 0.80 / 0.90 / 0.95.
+
+The payoff is measured in cost, not in RMSE. Conformal is evaluated at the level the
+theory prescribes from the cost ratio — no test-set information — while the
+fixed-margin rule is given its *best* margin chosen with hindsight, which biases the
+comparison against the proposed method:
+
+| κ = 10 | cost at τ* = 0.909 | vs hindsight-tuned fixed margin |
+|---|---|---|
+| GP, context-adaptive conformal | **19.27** | **−7.5%** |
+| GP, marginal conformal | 21.35 | +2.4% (worse) |
+| Robi, context-adaptive conformal | **49.34** | **−14.8%** |
+| Robi, marginal conformal | 59.09 | +2.0% (worse) |
+
+Read the pattern rather than the winner: conditioning the margin on *predicted
+uncertainty* beats the tuned heuristic on both operators; calibrating one margin for
+all conditions loses to it on both.
+
+The capacity-at-equal-SLA comparison from the original plan is **not** supported and
+is not claimed — see `STATUS.md` for why that metric structurally favours a heuristic
+whose frontier can only be drawn with hindsight.
 
 **4. Makes that allocation context-conditional.** The GP trace carries nine
 hand-labelled contextual flags. Testing them shows most do not predict the *level* of
