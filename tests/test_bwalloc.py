@@ -517,3 +517,28 @@ def test_adaptive_conformal_inference_is_causal():
         .allocate(pred_te, 0.9, y_test=bumped)
     )
     assert np.allclose(a_ref, a_alt)
+
+
+# --------------------------------------------------------------------------- #
+# What a foundation model's quantile head can and cannot express
+# --------------------------------------------------------------------------- #
+
+def test_native_quantile_ceiling_caps_the_expressible_cost_ratio():
+    """Chronos-Bolt's 0.9 quantile ceiling is a limit on cost asymmetry, not a detail.
+
+    The model emits quantiles only up to tau = 0.9, silently clipping anything higher.
+    Through tau* = kappa/(1+kappa) that ceiling corresponds to a cost ratio of exactly
+    9 -- below what under-provisioning typically costs an operator. So the model's own
+    quantile head cannot express the service level this application needs, and
+    calibration on top of it is what makes it usable rather than an optional
+    refinement. This pins the arithmetic behind that claim.
+    """
+    ceiling = 0.9
+    assert kappa_for_tau(ceiling) == pytest.approx(9.0)
+
+    # An operator with a realistic asymmetry needs a level the model cannot reach.
+    for kappa in (10.0, 20.0):
+        assert optimal_tau(kappa) > ceiling
+
+    # And the levels this project reports on are exactly the ones that straddle it.
+    assert optimal_tau(4.0) < ceiling < optimal_tau(19.0)
