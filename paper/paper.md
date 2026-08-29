@@ -40,10 +40,11 @@ operator specifies, context-adaptive calibration provisions **7.5% (GP) and 14.8
 calibration is *worse* than that rule on both traces.
 
 We report two negative results in full: correcting the feature design does not improve
-RMSE, and split-conformal coverage fails a ±2% check on real data (41 of 54
-configurations, 39 by under-covering) because exchangeability breaks under drift.
-Online conformal calibration repairs the latter, holding nominal coverage at every
-lead time from 1.4 to 24 hours.
+RMSE, and split-conformal coverage fails a ±2% check on real data — 2 of 30
+(operator, lead time, level) configurations pass, essentially all failures being
+*under*-coverage — because exchangeability breaks under drift. Online conformal
+calibration repairs it completely, passing **30 of 30** at lead times from 1.4 to 24
+hours on both operators.
 
 ---
 
@@ -388,8 +389,8 @@ second demonstration of §4.
 ## 8. A negative result on coverage, and its repair
 
 Enforcing the ±2% coverage check on real backtest output rather than synthetic data:
-**41 of 54 configurations fail, 39 of them by under-covering.** The one-sidedness is
-diagnostic. Split conformal's guarantee is conditional on exchangeability, and a
+**249 of 360 configurations fail, 232 of them by under-covering; of the 30 marginal
+(group = ALL) configurations, only 2 pass.** The one-sidedness is diagnostic. Split conformal's guarantee is conditional on exchangeability, and a
 55-day trace with a trend does not supply it.
 
 We therefore apply adaptive conformal inference, updating the requested miscoverage
@@ -397,12 +398,15 @@ online from realised breaches, `α ← α + γ(α_target − err)`, whose long-r
 converges without any exchangeability assumption. All feedback is strictly causal: the
 outcome at *t* affects only allocations from *t+1*.
 
-| method | configurations passing ±2% | mean coverage gap |
-|---|---|---|
-| **online (ACI)** | **14 / 18** | **−0.9 pp** |
-| Mondrian | 5 / 18 | −4.6 pp |
-| locally adaptive | 3 / 18 | −4.4 pp |
-| marginal | 3 / 18 | −4.6 pp |
+Across 5 lead times, 3 levels and both operators — 30 configurations of marginal
+coverage:
+
+| method | configurations passing ±2% | GP mean gap | Robi mean gap |
+|---|---|---|---|
+| **online (ACI)** | **30 / 30** | **+0.2 pp** | **−0.9 pp** |
+| locally adaptive | 6 / 30 | −2.8 pp | −4.2 pp |
+| Mondrian | 5 / 30 | −3.3 pp | −5.5 pp |
+| marginal | 2 / 30 | −3.4 pp | −4.9 pp |
 
 And it holds as the forecast degrades. GP, achieved coverage by lead time:
 
@@ -413,9 +417,16 @@ And it holds as the forecast degrades. GP, achieved coverage by lead time:
 | 0.95, online | 0.947 | 0.946 | 0.949 | 0.945 | 0.950 |
 | 0.95, marginal | 0.927 | 0.957 | 0.915 | 0.909 | 0.924 |
 
-**Online calibration holds its nominal service level at every lead time from 1.4 to
-24 hours, while static calibration drifts as far as 7 points below nominal as the
-forecast degrades.** For a deployable allocator this is the property that matters.
+**Online calibration holds its nominal service level in all 30 (operator, lead time,
+level) configurations, while static calibration meets it in 2 to 6 and drifts as far
+as 7 points below nominal as the forecast degrades.** For a deployable allocator this
+is the property that matters.
+
+This is *marginal* coverage, and we do not overstate it: counting per-group rows as
+well, ACI passes 61 of 90 configurations against 12–20 for the static methods. ACI is
+not group-conditional, so it does not subsume §6 — the two repairs address different
+failures and are complementary. A per-group online update is the obvious next step and
+is untried here.
 
 ---
 

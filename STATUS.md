@@ -121,7 +121,9 @@ Pinned in `test_horizon_baseline_is_not_the_one_step_baseline`.
 `experiments/run_coverage_gate.py` runs the plan's ±2% check on actual backtest
 output, with Clopper-Pearson intervals, and writes `coverage_gate.csv`.
 
-**Result: 41 of 54 configurations fail; 39 of the 41 failures are under-coverage.**
+**First result (one-step allocation only): 41 of 54 configurations fail; 39 of the 41
+failures are under-coverage.** The full sweep over lead times is below and is worse
+still — 249 of 360 — but the conclusion is identical.
 GP is close (marginal 0.931 at τ=0.95); Robi under-covers everywhere, worst −5.1 pp
 at τ=0.90.
 
@@ -334,6 +336,9 @@ allocation backtest:
 | adaptive | 3 / 18 | −4.4 pp |
 | marginal | 3 / 18 | −4.6 pp |
 
+(That table is the one-step allocation slice, including per-group rows. The
+lead-time-wide numbers are below.)
+
 Marginal coverage (group = ALL), nominal versus achieved:
 
 | operator | τ | aci | adaptive | marginal | mondrian |
@@ -361,14 +366,32 @@ coverage check, which had never been enforced on real output.
 | 0.95, **aci** | **0.947** | **0.946** | **0.949** | **0.945** | **0.950** |
 | 0.95, marginal | 0.927 | 0.957 | 0.915 | 0.909 | 0.924 |
 
-**All 15 GP configurations pass the ±2% gate under ACI**, at every lead time from 1.4
-to 24 hours, while static calibration drifts as far as 7 points below nominal (τ=0.80
-at 5.7 h) as the forecast degrades.
+### Final gate result, after re-running everything
 
-For a deployable allocator this is the property that matters: the service level is
-maintained even where the forecast is weakest. Quote it as *"online calibration holds
-its nominal service level at every lead time from 1.4 to 24 hours, while static
-calibration drifts up to 7 points short as the forecast degrades."*
+Marginal coverage (group = ALL) across 5 lead times x 3 levels x 2 operators —
+**30 configurations**:
+
+| method | passing ±2% | GP mean gap | Robi mean gap |
+|---|---|---|---|
+| **online (ACI)** | **30 / 30** | **+0.2 pp** | **−0.9 pp** |
+| locally adaptive | 6 / 30 | −2.8 pp | −4.2 pp |
+| Mondrian | 5 / 30 | −3.3 pp | −5.5 pp |
+| marginal | 2 / 30 | −3.4 pp | −4.9 pp |
+
+**ACI meets its target in every single one**, at every lead time from 1.4 to 24 hours,
+on both operators, while static calibration drifts as far as 7 points below nominal
+(GP τ=0.80 at a 5.7 h lead) as the forecast degrades.
+
+This closes the plan's Part 5 coverage check. Quote it as *"online calibration holds
+its nominal service level in all 30 (operator, lead time, level) configurations, while
+static calibration meets it in 2 to 6."*
+
+**Do not overstate it.** This is *marginal* coverage. Counting the per-group rows too,
+ACI passes 61 of 90 against 12–20 for the static methods — much better, but not
+complete, because ACI is not group-conditional. Per-group coverage is what the
+context-conditional methods address, and the two fixes are complementary rather than
+substitutes. Combining them (a per-group online update) is untried and is the obvious
+next methodological step.
 
 ---
 

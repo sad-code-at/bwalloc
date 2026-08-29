@@ -76,14 +76,15 @@ operator's cost ratio κ selecting the level via `τ* = κ/(1+κ)`. Split-confor
 calibration then makes the achieved service level match the promised one.
 
 Enforcing that claim on real output rather than on synthetic data
-(`run_coverage_gate.py`) shows it does **not** hold out of the box: 41 of 54
-configurations miss the ±2% target, and 39 of the 41 miss by *under*-covering. The
+(`run_coverage_gate.py`) shows it does **not** hold out of the box: of the 30
+(operator, lead time, level) configurations of marginal coverage, only 2 meet the ±2%
+target, and essentially every miss is an *under*-coverage. The
 one-sidedness is diagnostic — split conformal assumes exchangeability, and a 55-day
 trace with a trend does not supply it. `AdaptiveConformalInference` is the remedy,
 updating the requested level online from realised breaches so long-run coverage
-converges without any exchangeability assumption. It takes the gate from 3 of 18
-configurations passing to **14 of 18**, and on GP lands at 0.805 / 0.902 / 0.953
-against nominal 0.80 / 0.90 / 0.95.
+converges without any exchangeability assumption. It passes **30 of 30**, at every
+lead time from 1.4 to 24 hours on both operators, against 2 to 6 for the static
+methods.
 
 The payoff is measured in cost, not in RMSE. Conformal is evaluated at the level the
 theory prescribes from the cost ratio — no test-set information — while the
@@ -281,11 +282,13 @@ Two further limits are measured rather than asserted, and both are reported:
   `lag_24` via the short lags, so the sampling-rate error costs almost nothing in RMSE.
   Its cost is interpretive — every seasonal claim in the earlier study was stated on
   the wrong time axis — not predictive.
-- **Marginal coverage does not meet its ±2% target on these traces.** 41 of 54
-  configurations miss, all but two by under-covering, because exchangeability fails
-  under drift. Absolute coverage guarantees should therefore not be claimed from the
-  split-conformal results. The context-conditional comparison is unaffected: it is a
-  *relative* comparison between methods calibrated on identical data.
+- **Static conformal coverage does not meet its ±2% target on these traces.** Only 2
+  of 30 marginal configurations do, essentially all misses being under-coverage,
+  because exchangeability fails under drift. Absolute coverage guarantees should
+  therefore not be claimed from the split-conformal results; the online variant passes
+  30 of 30 and is what should be deployed. The context-conditional comparison is
+  unaffected either way: it is a *relative* comparison between methods calibrated on
+  identical data.
 
 The methods here are chosen to be *robust to* those limits rather than to hide them:
 conformal calibration is distribution-free and finite-sample valid, the estimability
