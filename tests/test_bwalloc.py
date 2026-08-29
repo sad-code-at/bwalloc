@@ -13,6 +13,7 @@ import pytest
 from bwalloc.allocation import kappa_for_tau, optimal_tau
 from bwalloc.baselines import Persistence, SeasonalNaive
 from bwalloc.conformal import (
+    AdaptiveConformalInference,
     LocallyAdaptiveConformal,
     SplitConformal,
     min_calibration_size,
@@ -437,3 +438,82 @@ def test_relative_conformal_still_delivers_nominal_coverage():
     for tau in (0.8, 0.9, 0.95):
         achieved = float(np.mean(y_te <= cal.allocate(pred_te, tau)))
         assert abs(achieved - tau) < 0.02, f"tau={tau}: achieved {achieved:.3f}"
+
+
+# --------------------------------------------------------------------------- #
+# Drift: the assumption split conformal actually depends on
+# --------------------------------------------------------------------------- #
+
+def test_split_conformal_under_covers_under_drift():
+    """The failure mode measured on the real traces, reproduced in isolation.
+
+    Split conformal's guarantee is conditional on exchangeability. When the error
+    scale grows after calibration -- which is what a 55-day trace with a trend looks
+    like -- coverage falls below nominal, one-sidedly. ``run_coverage_gate.py`` finds
+    exactly this on the real backtest: 39 of 41 gate failures are under-coverage.
+    """
+    rng = np.random.default_rng(3)
+    pred_cal = rng.uniform(50, 100, 400)
+    y_cal = pred_cal + rng.normal(0, 5, 400)
+
+    pred_te = rng.uniform(50, 100, 2000)
+    # Error scale triples across the test block: calibration no longer describes it.
+    scale = np.linspace(5, 15, 2000)
+    y_te = pred_te + rng.normal(0, 1, 2000) * scale
+
+    static = SplitConformal().calibrate(y_cal, pred_cal)
+    achieved = float(np.mean(y_te <= static.allocate(pred_te, 0.90)))
+    assert achieved < 0.90 - 0.02, (
+        f"expected under-coverage under drift, got {achieved:.3f}"
+    )
+
+
+def test_adaptive_conformal_inference_recovers_coverage_under_drift():
+    """ACI must repair what split conformal loses to drift.
+
+    This is the gate on the fix: the online level update has to bring long-run
+    coverage back to nominal on the same non-exchangeable stream where the frozen
+    level fails, without assuming exchangeability anywhere.
+    """
+    rng = np.random.default_rng(3)
+    pred_cal = rng.uniform(50, 100, 400)
+    y_cal = pred_cal + rng.normal(0, 5, 400)
+
+    pred_te = rng.uniform(50, 100, 2000)
+    scale = np.linspace(5, 15, 2000)
+    y_te = pred_te + rng.normal(0, 1, 2000) * scale
+
+    aci = AdaptiveConformalInference(gamma=0.05).calibrate(y_cal, pred_cal)
+    online = aci.allocate(pred_te, 0.90, y_test=y_te)
+    frozen = aci.allocate_static(pred_te, 0.90)
+
+    cov_online = float(np.mean(y_te <= online))
+    cov_frozen = float(np.mean(y_te <= frozen))
+    assert abs(cov_online - 0.90) < 0.02, f"ACI achieved {cov_online:.3f}"
+    assert cov_online > cov_frozen
+
+
+def test_adaptive_conformal_inference_is_causal():
+    """The outcome at t must not influence the allocation at t.
+
+    ACI is only defensible for provisioning if the feedback runs strictly one step
+    behind. Perturbing the final observation must leave every allocation unchanged,
+    including its own -- if it moved, the allocator would be reading the demand it is
+    supposed to be covering.
+    """
+    rng = np.random.default_rng(4)
+    pred_cal = rng.uniform(50, 100, 300)
+    y_cal = pred_cal + rng.normal(0, 5, 300)
+    pred_te = rng.uniform(50, 100, 200)
+    y_te = pred_te + rng.normal(0, 5, 200)
+
+    base = AdaptiveConformalInference().calibrate(y_cal, pred_cal)
+    a_ref = base.allocate(pred_te, 0.9, y_test=y_te)
+
+    bumped = y_te.copy()
+    bumped[-1] += 500.0
+    a_alt = (
+        AdaptiveConformalInference().calibrate(y_cal, pred_cal)
+        .allocate(pred_te, 0.9, y_test=bumped)
+    )
+    assert np.allclose(a_ref, a_alt)

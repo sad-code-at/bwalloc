@@ -7,29 +7,111 @@ Original senior's code, untouched, is at
 `D:\L4-T-1\EEE 402\project\ML-Based-Dynamic-Bandwidth-Allocation-for-Mobile-Data-Usage-main\`.
 All new work is in `D:\L4-T-1\EEE 402\project\bwalloc\`.
 
+**The repository is now under git** (`main`, local only, no remote). Every session's
+work is committed, so `git log` is the record of what changed and `git show <sha>`
+recovers any earlier state. Commit before stopping.
+
 ---
 
 ## Done and verified
 
-**Scaffold + library** — complete and tested. `pytest tests/` → **30 passed**.
+**Scaffold + library** — complete and tested. `pytest tests/` → **46 passed**.
 
 | module | status |
 |---|---|
 | `data.py` | done — loading, `SamplingProfile`, ACF-by-lag |
 | `features.py` | done — leak-safe builder, Fourier terms, `lag_samples` for faithful reproduction |
-| `splits.py` | done — rolling-origin folds with calibration slice |
+| `splits.py` | done — rolling-origin folds, calibration slice, **embargo** for multi-horizon |
 | `baselines.py` | done — persistence, seasonal-naive, drift, rolling mean, train mean |
 | `models.py` | done — Ridge / RF / XGBoost point + `QuantileGBM` |
 | `evaluate.py` | done — backtest harness, DM tests + BH correction |
+| `forecast.py` | done — direct + recursive multi-horizon, per-horizon naive baselines |
 | `context.py` | done — flag validation, disjoint groups, `UncertaintyModel` |
-| `conformal.py` | done — marginal / locally adaptive / Mondrian + estimability guard |
+| `conformal.py` | done — marginal / relative / locally adaptive / Mondrian / **ACI** + estimability guard |
 | `allocation.py` | done — cost model, policies, Pareto sweep |
 | `pipeline.py` | done — end-to-end allocation backtest |
-| `metrics.py`, `stats.py`, `plots.py` | done |
-| `tests/test_bwalloc.py` | done — 30 gates, all passing |
+| `metrics.py`, `stats.py`, `plots.py` | done (`plots.py` still never executed) |
+| `tests/test_bwalloc.py` | done — 46 gates, all passing |
 
-**Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py` — all
-complete for both operators. Every table is in `experiments/results/`.
+**Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py`,
+`run_horizon.py`, `run_coverage_gate.py`. Every table is in `experiments/results/`.
+
+---
+
+## Multi-horizon — this reframes the whole project (NEW, verified)
+
+The single most important result so far, and it was invisible while everything was
+one-step-ahead. GP, RMSE by lead time, 8 rolling-origin folds with an embargo:
+
+| lead | 1.43 h | 2.87 h | 5.73 h | 11.47 h | 24.37 h |
+|---|---|---|---|---|---|
+| random_forest | **10.40** | **11.85** | **12.48** | **12.83** | **12.82** |
+| xgboost | 10.73 | 12.18 | 12.36 | 12.79 | 13.01 |
+| ridge | 11.26 | 14.45 | 15.87 | 14.50 | 15.08 |
+| seasonal_naive_17 | 18.31 | 18.31 | 18.35 | 18.38 | 18.26 |
+| persistence at that lead | 12.12 | 17.41 | 25.11 | 31.16 | 18.26 |
+| **RF advantage over naive** | **−14%** | **−32%** | **−50%** | **−59%** | **−30%** |
+
+Read the last row. At one step ahead the learned model beats a one-line baseline by
+14%, which is the weak result that made the corrected benchmark look unexciting. At
+an 11.5-hour lead — an operationally realistic provisioning horizon — it beats the
+naive forecaster by **59%**, and its own accuracy has degraded by only 23% while the
+baseline's has degraded by 157%.
+
+**This is the argument for the entire system**, and it is the sentence to lead the
+paper with: the value of learning is not visible at one step, it is visible at the
+lead time an allocator actually needs. It also disposes of the "six of ten models
+lose to persistence" problem in the audit — that comparison was only ever damning at
+h=1.
+
+Direct beats recursive, and the gap widens with horizon (GP):
+
+| steps | 1 | 2 | 4 | 8 | 17 |
+|---|---|---|---|---|---|
+| direct | 10.73 | 12.19 | 12.37 | 12.79 | 13.01 |
+| recursive | 10.80 | 14.33 | 19.19 | 20.48 | 24.18 |
+
+At 17 steps recursive is **86% worse**. Error compounding dominates; one model per
+horizon is the right design. (At 1 step the two agree to 0.7%, as they must — that
+agreement is the correctness check on the rollout.)
+
+Tables: `horizon_gp.csv`, `horizon_alloc_gp.csv`, `horizon_strategy_gp.csv`
+(and `_robi` equivalents).
+
+### A second finding that only the corrected sampling rate makes visible
+
+On **Robi**, forecasting 24 hours ahead with yesterday's value at the same hour
+(RMSE 26.49) is *better* than forecasting 1.6 hours ahead with the most recent
+observation (29.40). The daily cycle there is stronger than short-run persistence.
+This inverts the usual "accuracy decays with horizon" intuition, and it is only
+visible once the daily period is measured as 15 samples rather than assumed to be 24.
+Pinned in `test_horizon_baseline_is_not_the_one_step_baseline`.
+
+---
+
+## Coverage gate — now enforced on real data, and the failure is fixed (NEW)
+
+`experiments/run_coverage_gate.py` runs the plan's ±2% check on actual backtest
+output, with Clopper-Pearson intervals, and writes `coverage_gate.csv`.
+
+**Result: 41 of 54 configurations fail; 39 of the 41 failures are under-coverage.**
+GP is close (marginal 0.931 at τ=0.95); Robi under-covers everywhere, worst −5.1 pp
+at τ=0.90.
+
+The one-sidedness is diagnostic: split conformal's guarantee is conditional on
+exchangeability, and a 55-day trace with a trend does not supply it. So this is drift,
+not a bug — and drift has a standard fix, now implemented:
+
+`conformal.AdaptiveConformalInference` (Gibbs & Candès) updates the requested
+miscoverage online, `α ← α + γ(α_target − err)`, so a run of breaches widens the next
+margin and a quiet stretch reclaims the capacity. Long-run coverage converges without
+assuming exchangeability at all. Verified in `tests/`: on a synthetic stream whose
+error scale triples, frozen split conformal under-covers and ACI recovers nominal to
+within 2 pp; a separate gate proves the feedback is strictly causal.
+
+**Still to do:** re-run `run_allocation.py` (ACI is wired into `pipeline.py` as the
+`aci` method but the one-step results on disk predate it) and re-run the gate to
+confirm the failure count drops on the real traces.
 
 ---
 

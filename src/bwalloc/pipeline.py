@@ -24,7 +24,12 @@ import numpy as np
 import pandas as pd
 
 from . import metrics as M
-from .conformal import LocallyAdaptiveConformal, MondrianConformal, SplitConformal
+from .conformal import (
+    AdaptiveConformalInference,
+    LocallyAdaptiveConformal,
+    MondrianConformal,
+    SplitConformal,
+)
 from .context import UncertaintyModel
 from .splits import Fold
 
@@ -65,7 +70,7 @@ def run_allocation_backtest(
     model_factory: Callable[[], object],
     taus=(0.8, 0.9, 0.95),
     kappa: float = 10.0,
-    methods=("marginal", "adaptive", "mondrian"),
+    methods=("marginal", "adaptive", "mondrian", "aci"),
     min_group_eval: int = 3,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Score conformal allocation methods across folds, groups and quantile levels.
@@ -135,6 +140,14 @@ def run_allocation_backtest(
             calibrators["mondrian"] = (
                 MondrianConformal().calibrate(y_ca_arr, pred_ca, groups_calib=g_ca),
                 {"groups_test": g_te},
+            )
+        if "aci" in methods:
+            # Online: consumes each test outcome one step after the allocation it
+            # informed, which is why y_te_arr is passed in. Strictly causal -- see
+            # AdaptiveConformalInference.allocate.
+            calibrators["aci"] = (
+                AdaptiveConformalInference().calibrate(y_ca_arr, pred_ca),
+                {"y_test": y_te_arr},
             )
 
         for tau in taus:

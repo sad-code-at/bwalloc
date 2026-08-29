@@ -274,6 +274,121 @@ class MondrianConformal(ConformalCalibrator):
         return out
 
 
+@dataclass
+class AdaptiveConformalInference(ConformalCalibrator):
+    """Online conformal calibration that tracks distribution shift.
+
+    Split conformal's finite-sample guarantee is conditional on exchangeability, and a
+    55-day trace with a trend does not supply it. Measured on the real backtest
+    (``experiments/run_coverage_gate.py``), every calibrated method under-covers: on
+    Robi the shortfall reaches 5 percentage points at tau=0.90, and the direction is
+    one-sided, which is the signature of drift rather than of a bug.
+
+    The fix is to stop treating the level as fixed. Following Gibbs and Candes'
+    adaptive conformal inference, the *requested* miscoverage is updated after every
+    observation by
+
+    ``alpha <- alpha + gamma * (alpha_target - err)``
+
+    where ``err`` is 1 if the last allocation was breached. A run of breaches lowers
+    alpha, which widens the next margin; a quiet stretch raises it back and reclaims
+    the capacity. Long-run coverage converges to the target *without* assuming
+    exchangeability at all -- exactly the assumption these traces violate.
+
+    Both feedback channels are strictly causal: the outcome at time *t* only ever
+    influences allocations from ``t+1`` onward. For provisioning that is realistic,
+    since yesterday's utilisation is known before today's capacity is set.
+
+    Parameters
+    ----------
+    gamma:
+        Step size. Larger tracks shift faster and is noisier between updates.
+    window:
+        If set, the residual pool keeps only this many most recent residuals, so the
+        quantile itself also forgets. Complements the alpha update rather than
+        replacing it.
+    relative:
+        Calibrate proportional residuals, as in :class:`SplitConformal`.
+    """
+
+    gamma: float = 0.05
+    window: int | None = None
+    relative: bool = False
+    floor_frac: float = 0.05
+    name: str = "adaptive_conformal_inference"
+    residuals_: np.ndarray | None = field(default=None, init=False)
+    alpha_trace_: np.ndarray | None = field(default=None, init=False)
+    _floor: float = field(default=1.0, init=False)
+
+    def _safe(self, p):
+        return np.maximum(np.asarray(p, dtype=float), self._floor)
+
+    def _score(self, y, p):
+        return (y - p) / self._safe(p) if self.relative else y - p
+
+    def calibrate(self, y_calib, pred_calib, **kwargs) -> "AdaptiveConformalInference":
+        y = np.asarray(y_calib, dtype=float).ravel()
+        p = np.asarray(pred_calib, dtype=float).ravel()
+        if len(y) != len(p):
+            raise ValueError("y_calib and pred_calib must have equal length.")
+        if self.relative:
+            self._floor = self.floor_frac * float(np.mean(np.abs(p))) or 1.0
+        self.residuals_ = self._score(y, p)
+        return self
+
+    def allocate(self, pred_test, tau: float, y_test=None, **kwargs) -> np.ndarray:
+        """Allocate sequentially, updating the level from realised breaches.
+
+        ``y_test`` is required, and is consumed one step behind the allocation it
+        informs. Without it the method degenerates to :class:`SplitConformal`, which
+        is what :meth:`allocate_static` provides.
+        """
+        if self.residuals_ is None:
+            raise RuntimeError("Call calibrate() first.")
+        if y_test is None:
+            raise ValueError(
+                "AdaptiveConformalInference needs y_test: the level is updated from "
+                "realised outcomes. Use allocate_static() for a frozen level."
+            )
+        p = np.asarray(pred_test, dtype=float).ravel()
+        y = np.asarray(y_test, dtype=float).ravel()
+        if len(p) != len(y):
+            raise ValueError("pred_test and y_test must have equal length.")
+
+        alpha_target = 1.0 - tau
+        alpha = alpha_target
+        pool = list(self.residuals_)
+        out = np.empty(len(p), dtype=float)
+        trace = np.empty(len(p), dtype=float)
+
+        for t in range(len(p)):
+            # The pool cannot express an arbitrarily fine level; clamp rather than
+            # let the estimability guard raise mid-stream.
+            lo = 1.0 / (len(pool) + 1.0)
+            a = float(np.clip(alpha, lo, 0.5))
+            trace[t] = a
+            q = _conformal_quantile(np.asarray(pool), 1.0 - a)
+            out[t] = self._safe(p[t]) * (1.0 + q) if self.relative else p[t] + q
+
+            # --- everything below uses y[t], and only affects steps after t ---
+            err = 1.0 if y[t] > out[t] else 0.0
+            alpha = alpha + self.gamma * (alpha_target - err)
+            pool.append(float(self._score(y[t], p[t])))
+            if self.window is not None and len(pool) > self.window:
+                pool = pool[-self.window:]
+
+        self.alpha_trace_ = trace
+        return out
+
+    def allocate_static(self, pred_test, tau: float) -> np.ndarray:
+        """The frozen-level allocation, for an ablation against the online one."""
+        if self.residuals_ is None:
+            raise RuntimeError("Call calibrate() first.")
+        p = np.asarray(pred_test, dtype=float).ravel()
+        q = _conformal_quantile(self.residuals_, tau)
+        return self._safe(p) * (1.0 + q) if self.relative else p + q
+
+
 def cross_conformal_residuals(
     per_fold_predictions: pd.DataFrame,
     y_col: str = "y_true",
