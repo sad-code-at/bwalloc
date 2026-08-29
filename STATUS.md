@@ -64,16 +64,43 @@ lead time an allocator actually needs. It also disposes of the "six of ten model
 lose to persistence" problem in the audit — that comparison was only ever damning at
 h=1.
 
-Direct beats recursive, and the gap widens with horizon (GP):
+**Robi replicates it**, which makes this a two-operator finding rather than one
+trace's quirk:
+
+| lead | 1.65 h | 3.30 h | 6.60 h | 11.55 h | 24.75 h |
+|---|---|---|---|---|---|
+| random_forest | **20.77** | **25.23** | **27.27** | **28.01** | **22.69** |
+| xgboost | 21.11 | 24.04 | 27.23 | 27.74 | 24.25 |
+| seasonal_naive_15 | 26.26 | 26.26 | 26.27 | 26.24 | 26.49 |
+| persistence at that lead | 29.75 | 45.07 | 65.97 | 75.95 | 26.49 |
+| **RF advantage over naive** | **−30%** | **−44%** | **−59%** | **−63%** | **−14%** |
+
+Same shape: advantage grows from −30% to **−63%** as lead time grows, then narrows at
+24 h where the seasonal baseline becomes strong again.
+
+### Direct vs recursive — the answer differs by operator
+
+GP: direct dominates and the gap widens with horizon.
 
 | steps | 1 | 2 | 4 | 8 | 17 |
 |---|---|---|---|---|---|
 | direct | 10.73 | 12.19 | 12.37 | 12.79 | 13.01 |
 | recursive | 10.80 | 14.33 | 19.19 | 20.48 | 24.18 |
 
-At 17 steps recursive is **86% worse**. Error compounding dominates; one model per
-horizon is the right design. (At 1 step the two agree to 0.7%, as they must — that
-agreement is the correctness check on the rollout.)
+At 17 steps recursive is **86% worse**. (At 1 step the two agree to 0.7%, as they
+must — that agreement is the correctness check on the rollout.)
+
+Robi: **the two are within noise at intermediate horizons and recursive is slightly
+ahead**, with direct winning only at the daily horizon.
+
+| steps | 1 | 2 | 4 | 7 | 15 |
+|---|---|---|---|---|---|
+| direct | 21.11 | 24.04 | 27.23 | 27.74 | **24.25** |
+| recursive | 21.32 | **23.76** | **26.82** | **26.62** | 28.10 |
+
+Do not overstate "direct beats recursive" — it is operator-dependent, and the honest
+statement is that direct is the safer default and is decisively better at long
+horizons and on the trace with strong short-run autocorrelation.
 
 Tables: `horizon_gp.csv`, `horizon_alloc_gp.csv`, `horizon_strategy_gp.csv`
 (and `_robi` equivalents).
