@@ -15,6 +15,33 @@ explains them.
 
 ---
 
+## At a glance
+
+Two Bangladeshi cell-site traces, 905 and 888 observations over ~2 months. Seven studies,
+every number reproduced from `experiments/results/` and gated by `pytest tests/`.
+
+| # | Study | Headline | Where |
+|---|---|---|---|
+| 1 | **Audit** | The traces are sampled every 86 / 99 min, not hourly; rolling features leaked the target; no baseline was ever computed. Six of ten originally reported models lose to persistence. | `run_audit.py` |
+| 2 | **Corrected benchmark** | Rolling-origin folds, real baselines, Diebold-Mariano with FDR control. The correction is a *negative* result on accuracy — and it is reported as one. | `run_benchmark.py` |
+| 3 | **Lead time** | The value of learning is invisible at one step and decisive at eleven hours: −14% vs naive at a 1.4 h lead, **−59%** at 11.5 h. | `run_horizon.py` |
+| 4 | **Allocation** | Cost asymmetry κ selects a quantile via τ\* = κ/(1+κ). Beats a *hindsight-tuned* fixed margin by 7.5% (GP) and 14.8% (Robi). | `run_allocation.py` |
+| 5 | **Context-conditional** | Context acts on *variance*, not level: `is_rain` raises residual σ by 33%. Holds on GP, correctly null on Robi. | `run_allocation.py` |
+| 6 | **Cold start** | A model trained on the *other* operator beats persistence with zero local training data. The crossover is **about a week**. | `run_transfer.py` |
+| 7 | **Zero-shot** | Chronos-Bolt works on GP and fails on Robi — and the sampling interval predicts which, in advance. | `run_foundation.py` |
+| — | **Coverage gate** | Static conformal meets its ±2% target in 2 of 30 configurations. Online (ACI) meets it in **30 of 30**. | `run_coverage_gate.py` |
+
+### Where to read what
+
+| If you want | Read |
+|---|---|
+| To learn the project end to end | [`docs/WALKTHROUGH.md`](docs/WALKTHROUGH.md) — run order, vocabulary, what each change bought |
+| The results, argued | [`paper/paper.md`](paper/paper.md) + [`paper/figures/`](paper/figures) (9 figures) |
+| The current state and open questions | [`STATUS.md`](STATUS.md) — including what is *not* done |
+| To run it yourself | [Quick start](#quick-start) below, or `notebooks/` in Colab |
+
+---
+
 ## The result to read first
 
 Every result in the earlier study, and every notebook in it, predicts `Gbps` at time
@@ -156,12 +183,76 @@ days, nothing by 5–7, and −10% by 21, where the borrowed weights hold the mo
 
 ---
 
+## Zero-shot foundation models, and a use for the audit
+
+`run_foundation.py` runs Chronos-Bolt Small strictly zero-shot — no fitting, no fine-tuning —
+on the same folds, leads and test blocks as the trained models. It takes ~7 minutes on CPU.
+
+**The answer depends entirely on the operator, and that is the finding.**
+
+| lead | GP zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.4 h | 11.18 | 10.40 | +7.5% | −7.8% |
+| 5.7 h | 13.50 | 12.36 | +9.2% | −46.2% |
+| 11.5 h | 14.41 | 12.79 | +12.7% | −53.8% |
+| 24.4 h | 15.20 | 12.82 | +18.6% | −16.8% |
+
+| lead | Robi zero-shot | best trained | vs trained | vs persistence |
+|---|---|---|---|---|
+| 1.7 h | 30.54 | 20.77 | +47.1% | **+2.7%** |
+| 6.6 h | 40.34 | 27.23 | +48.2% | −38.8% |
+| 11.6 h | 42.56 | 27.74 | +53.4% | −44.0% |
+| 24.8 h | 43.63 | 22.69 | **+92.3%** | **+64.7%** |
+
+On GP this is a credible drop-in system: it beats persistence at every lead and trails
+bespoke training by only 7.5–18.6%. On Robi it trails by 47–92% and *loses* to persistence
+at both the shortest and the longest lead.
+
+The reason turns the audit into a diagnostic. A foundation model reads a bare sequence with
+**no timestamps**. It cannot know that a step is 86 min on one trace and 99 on the other, so
+it must infer the daily cycle from the sequence — and under irregular sampling that cycle is
+not a whole number of steps:
+
+| | gap | exact daily period | misregistration |
+|---|---|---|---|
+| GP | 86 min | 16.744 samples | 0.256 samples/day |
+| Robi | 99 min | **14.545 samples** | **0.455 samples/day** |
+
+Robi's cycle slips roughly twice as fast — about 25 samples, or 1.7 full cycles, of drift
+across the 55-day trace against GP's 14. And the single worst result in the experiment is
+Robi at a 24-hour lead: the one setting where the daily cycle *is* the signal, and where the
+naive baseline wins by stepping back exactly one **measured** cycle — precisely the operation
+a timestamp-blind model cannot perform.
+
+So measuring the sampling interval does not merely repair the earlier study. It tells you in
+advance whether a zero-shot foundation model will work on your trace at all.
+
+**Its quantiles are not usable for provisioning as they come.** Chronos-Bolt's quantile head
+was trained on 0.1–0.9 only, so τ = 0.95 is silently clipped to 0.90 and returns identical
+numbers — which through τ\* = κ/(1+κ) caps the expressible cost ratio at κ = 9. Robi's
+nominal 80% interval delivers 66% coverage. Conformal calibration repairs every level on both
+traces:
+
+| operator | τ | zero-shot | conformalised |
+|---|---|---|---|
+| GP | 0.80 | 0.791 | 0.815 |
+| GP | 0.90 | 0.886 | 0.903 |
+| GP | 0.95 | 0.886 *(clipped)* | 0.941 |
+| Robi | 0.80 | **0.662** | 0.813 |
+| Robi | 0.90 | **0.786** | 0.909 |
+| Robi | 0.95 | 0.786 *(clipped)* | 0.950 |
+
+The synthesis: the foundation model supplies a cheap point forecast; conformal calibration
+supplies the service-level guarantee it cannot.
+
+---
+
 ## Quick start
 
 ### Colab
 
 ```python
-!git clone https://github.com/<you>/bwalloc.git
+!git clone https://github.com/sad-code-at/bwalloc.git
 %cd bwalloc
 !pip install -q -r requirements.txt
 import sys; sys.path.insert(0, "src")
@@ -220,6 +311,9 @@ notebooks/               Colab-first analysis notebooks, generated by notebooks/
   05_transfer            cold start: how much history a new cell site needs
   06_foundation_models   zero-shot Chronos-Bolt, and when it fails
   07_paper_figures       regenerates every figure from experiments/results/ alone
+paper/                   paper.md (full draft) and figures/ (9 rendered figures)
+docs/WALKTHROUGH.md      the teaching document: read this first
+STATUS.md                working record — what is verified, what is open, what to be careful of
 ```
 
 The notebooks are generated from `notebooks/_build.py` and stay thin over library

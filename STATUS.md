@@ -10,9 +10,11 @@ Original senior's code, untouched, is at
 `D:\L4-T-1\EEE 402\project\ML-Based-Dynamic-Bandwidth-Allocation-for-Mobile-Data-Usage-main\`.
 All new work is in `D:\L4-T-1\EEE 402\project\bwalloc\`.
 
-**The repository is now under git** (`main`, local only, no remote). Every session's
-work is committed, so `git log` is the record of what changed and `git show <sha>`
-recovers any earlier state. Commit before stopping.
+**The repository is under git and pushed to GitHub** — `main`, remote `origin` at
+<https://github.com/sad-code-at/bwalloc> (**private**). Every session's work is
+committed, so `git log` is the record of what changed and `git show <sha>` recovers any
+earlier state. Commit *and push* before stopping: `git push`. The remote is the offsite
+backup, so a lost laptop no longer loses the project.
 
 ---
 
