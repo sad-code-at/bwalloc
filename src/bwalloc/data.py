@@ -204,12 +204,26 @@ def autocorrelation_by_lag(
     work: for GP the daily peak sits at lag 16 (+0.68) while lag 24 -- the lag every
     original model used as its "1-day" feature -- sits at -0.35.
     """
+    if not isinstance(y, pd.Series):
+        # A DataFrame reaches pandas' two-argument DataFrame.corr, where the shifted
+        # frame is read as the *method* argument and fails deep inside pandas with
+        # "truth value of a DataFrame is ambiguous" -- a message that says nothing
+        # about the real mistake. Refuse it here instead.
+        raise TypeError(
+            f"autocorrelation_by_lag expects a Series, got {type(y).__name__}. "
+            f"Pass the target column (df[TARGET]), not the whole frame."
+        )
+
     rows = []
     for lag in range(1, max_lag + 1):
         rows.append(
             {
                 "lag_samples": lag,
-                "lag_hours": profile.hours_for_lag(lag) if profile else np.nan,
+                # `is not None` rather than truthiness: a dataclass that later grows
+                # a __len__ or __bool__ would silently start reporting NaN hours.
+                "lag_hours": (
+                    profile.hours_for_lag(lag) if profile is not None else np.nan
+                ),
                 "autocorr": float(y.corr(y.shift(lag))),
             }
         )

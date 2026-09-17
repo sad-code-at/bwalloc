@@ -630,3 +630,57 @@ def test_sequence_lookback_must_match_the_design_matrix():
     y = pd.Series(np.zeros(30))
     with pytest.raises(ValueError, match="lookback=8"):
         SequenceForecaster(kind="cnn", lookback=8, epochs=1).fit(X, y)
+
+
+# --------------------------------------------------------------------------- #
+# Notebook contract: the generated notebooks call library code, so the library
+# must fail loudly on the mistakes a notebook can make, and its output schema
+# must not drift away from the columns the notebooks select.
+# --------------------------------------------------------------------------- #
+
+def test_autocorrelation_by_lag_rejects_a_frame(trace):
+    """A DataFrame must be refused here, not deep inside pandas.
+
+    ``df.corr(other)`` on a DataFrame reads ``other`` as the *method* argument and
+    dies with "the truth value of a DataFrame is ambiguous" -- a message that says
+    nothing about the actual mistake. This cost a notebook run once; the guard
+    turns it into a sentence naming the fix.
+    """
+    from bwalloc.data import autocorrelation_by_lag
+
+    _, df, profile = trace
+    with pytest.raises(TypeError, match="expects a Series"):
+        autocorrelation_by_lag(df, max_lag=5, profile=profile)
+
+    # The Series form still works, and reports wall-clock hours when given a profile.
+    acf = autocorrelation_by_lag(df[TARGET], max_lag=5, profile=profile)
+    assert list(acf["lag_samples"]) == [1, 2, 3, 4, 5]
+    assert acf["lag_hours"].notna().all()
+
+
+def test_autocorrelation_lag_hours_are_nan_without_a_profile(trace):
+    """Omitting the profile yields NaN hours rather than crashing on truthiness."""
+    from bwalloc.data import autocorrelation_by_lag
+
+    _, df, _ = trace
+    acf = autocorrelation_by_lag(df[TARGET], max_lag=3)
+    assert acf["lag_hours"].isna().all()
+
+
+def test_flag_report_columns_match_what_the_notebooks_select(trace):
+    """Pin the flag-audit schema.
+
+    ``03_context_conditional`` selects these columns by name. When they were renamed
+    the notebook failed with a bare KeyError far from the cause, so the contract is
+    asserted here where a rename is made.
+    """
+    from bwalloc.context import flag_report
+
+    operator, df, _ = trace
+    report = flag_report(df, operator)
+    required = {
+        "flag", "n_on", "mean_on", "mean_off", "delta_mean", "p_level",
+        "resid_sd_on", "resid_sd_off", "variance_ratio", "p_variance",
+    }
+    missing = required - set(report.columns)
+    assert not missing, f"flag_report lost columns the notebooks select: {sorted(missing)}"

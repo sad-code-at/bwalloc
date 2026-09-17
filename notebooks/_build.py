@@ -44,7 +44,10 @@ bw.set_seed()
 use_paper_style()
 pd.set_option("display.width", 200)
 RESULTS = ROOT / "experiments" / "results"
-FIGURES = ROOT / "paper" / "figures"
+# Scratch output for the exploratory notebooks. Only 07_paper_figures writes into
+# paper/figures -- otherwise running notebook 00 or 05 silently overwrites a figure
+# the paper cites, which is exactly the kind of drift this project exists to remove.
+FIGURES = ROOT / "notebooks" / "figures"
 FIGURES.mkdir(parents=True, exist_ok=True)
 print("bwalloc", bw.__version__, "| results:", RESULTS)
 '''
@@ -107,7 +110,7 @@ The three findings, in order of how much they matter:
     md("## Sampling rate\n\nEvery seasonal hyperparameter in this project is derived "
        "from this table. Nothing is hardcoded to 24."),
     code("""
-from bwalloc.data import load, sampling_profile, autocorrelation_by_lag
+from bwalloc.data import TARGET, load, sampling_profile, autocorrelation_by_lag
 
 traces = {}
 for operator in ("gp", "robi"):
@@ -127,7 +130,7 @@ from bwalloc.plots import plot_autocorrelation_by_lag
 
 fig, axes = plt.subplots(1, 2, figsize=(11, 3.6))
 for ax, (operator, (df, profile)) in zip(axes, traces.items()):
-    acf = autocorrelation_by_lag(df, max_lag=40)
+    acf = autocorrelation_by_lag(df[TARGET], max_lag=40, profile=profile)
     plot_autocorrelation_by_lag(acf, profile, ax=ax)
     ax.set_title(f"{operator.upper()} — {profile.median_gap_min:.0f} min/sample")
 fig.tight_layout()
@@ -417,8 +420,8 @@ profile = sampling_profile(df)
 
 # Which flags mark elevated *uncertainty*? Levene's test on detrended residuals.
 report = flag_report(df, OPERATOR)
-report[["flag", "n_flagged", "mean_diff", "p_level", "resid_sd_flagged",
-        "resid_sd_other", "variance_ratio", "p_variance"]]
+report[["flag", "n_on", "delta_mean", "p_level", "resid_sd_on",
+        "resid_sd_off", "variance_ratio", "p_variance"]]
 """),
     md("""
 ### Group construction, and why it is a two-group split
@@ -807,6 +810,10 @@ from bwalloc.data import load, sampling_profile
 from bwalloc.plots import (
     plot_benchmark, plot_coverage_by_group, plot_flag_report, plot_pareto,
 )
+
+# This notebook -- and only this notebook -- writes the figures the paper cites.
+FIGURES = ROOT / "paper" / "figures"
+FIGURES.mkdir(parents=True, exist_ok=True)
 
 profiles = {op: sampling_profile(load(op)) for op in ("gp", "robi")}
 written = []

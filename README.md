@@ -278,7 +278,7 @@ python experiments/run_sequence.py      # CNN/LSTM/GRU/RNN vs trees (~4 min, tor
 python experiments/run_transfer.py      # cross-operator cold start (~2 min)
 python experiments/run_foundation.py    # zero-shot Chronos-Bolt (~7 min, CPU)
 python experiments/run_coverage_gate.py # the +/-2% coverage check, on real output
-pytest tests/                           # 52 verification gates
+pytest tests/                           # 58 verification gates
 ```
 
 All tables land in `experiments/results/` as CSV; figures read only from there, so the
@@ -323,8 +323,12 @@ docs/BENCHMARKS.md       published RMSE/MAPE figures, and why raw RMSE does not 
 STATUS.md                working record — what is verified, what is open, what to be careful of
 ```
 
-The notebooks are generated from `notebooks/_build.py` and stay thin over library
-calls. The earlier project kept ~7 near-duplicate copies of the same feature block
+The notebooks are generated from `notebooks/_build.py`, stay thin over library calls,
+and are committed **with their outputs** so they read on GitHub without being run.
+Regenerating strips those outputs, so the full recipe is `python notebooks/_build.py`
+then `python -m nbconvert --to notebook --execute --inplace notebooks/0*.ipynb`.
+Only `07_paper_figures` writes into `paper/figures/`; the rest write to
+`notebooks/figures/`, which is gitignored. The earlier project kept ~7 near-duplicate copies of the same feature block
 which had silently drifted apart; generating them from one source makes that
 impossible rather than merely discouraged.
 
@@ -332,7 +336,7 @@ impossible rather than merely discouraged.
 
 ## Verification gates
 
-`pytest tests/` (52 gates) encodes the specific failures found in the earlier work so a refactor
+`pytest tests/` (58 gates) encodes the specific failures found in the earlier work so a refactor
 cannot silently reintroduce them:
 
 | gate | what it protects |

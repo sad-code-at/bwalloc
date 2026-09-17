@@ -25,7 +25,7 @@ backup, so a lost laptop no longer loses the project.
 
 ## Done and verified
 
-**Scaffold + library** — complete and tested. `pytest tests/` → **52 passed**.
+**Scaffold + library** — complete and tested. `pytest tests/` → **58 passed**.
 
 | module | status |
 |---|---|
@@ -40,8 +40,8 @@ backup, so a lost laptop no longer loses the project.
 | `conformal.py` | done — marginal / relative / locally adaptive / Mondrian / **ACI** + estimability guard |
 | `allocation.py` | done — cost model, policies, Pareto sweep |
 | `pipeline.py` | done — end-to-end allocation backtest |
-| `metrics.py`, `stats.py`, `plots.py` | done (`plots.py` still never executed) |
-| `tests/test_bwalloc.py` | done — 52 gates, all passing |
+| `metrics.py`, `stats.py`, `plots.py` | done, and now exercised — every notebook runs clean |
+| `tests/test_bwalloc.py` | done — 58 gates, all passing |
 
 **Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py`,
 `run_horizon.py`, `run_coverage_gate.py`. Every table is in `experiments/results/`.
@@ -673,7 +673,7 @@ Numbers and the full comparison are in `docs/BENCHMARKS.md`.
 ```bash
 cd "D:/L4-T-1/EEE 402/project/bwalloc"
 pip install -r requirements.txt
-PYTHONPATH=src python -m pytest tests/ -q      # 52 gates, ~30 s
+PYTHONPATH=src python -m pytest tests/ -q      # 58 gates, ~30 s
 python experiments/run_audit.py                # ~1 min
 python experiments/run_benchmark.py            # ~4 min
 python experiments/run_allocation.py           # ~10 min
@@ -682,7 +682,8 @@ python experiments/run_sequence.py              # ~4 min, needs torch
 python experiments/run_transfer.py              # ~2 min
 python experiments/run_foundation.py           # ~7 min, needs chronos-forecasting
 python experiments/run_coverage_gate.py        # instant, reads CSVs only
-python notebooks/_build.py                     # regenerate the notebooks
+python notebooks/_build.py                     # regenerate the notebooks (strips outputs)
+python -m nbconvert --to notebook --execute --inplace notebooks/0*.ipynb  # ~25 min
 ```
 
 Git is the record of what changed: `git log --oneline`, `git show <sha>`. Commit
