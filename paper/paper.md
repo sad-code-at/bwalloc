@@ -150,7 +150,29 @@ loss is symmetric, that one-step-ahead error is the operational quantity, and th
 sampling grid is whatever the column index implies. This paper is an argument that all
 three matter, and a demonstration that the third is measurable rather than rhetorical.
 
-**SLA-aware prediction and slice resource allocation.** Closest to our framing is the work
+**Cost-aware capacity forecasting.** The closest prior work to ours is DeepCog [16],
+[17], which makes the same central argument: an operator does not want a forecast of
+traffic minimising absolute error, it wants a forecast of the *capacity* to provision,
+and the two differ because over-provisioning and SLA violation carry different costs.
+DeepCog trains a three-dimensional convolutional network with a tunable asymmetric loss
+and reports monetary cost rather than RMSE, reducing operating expenses by 273–381%
+against the best of four benchmarks at a cost ratio of α = 2. One of those benchmarks —
+a fixed over-provisioning offset selected by exhaustive search over the evaluation data
+— is the same hindsight-tuned comparator we construct independently in §6.3, which we
+take as evidence that it is the right heuristic to measure against.
+
+We differ in mechanism rather than in aim. DeepCog trains the asymmetry into the
+network's weights, so the cost ratio is fixed at training time and a tenant with a
+different κ requires a different model. We leave the forecaster untouched and place the
+asymmetry in a calibrated quantile, so κ becomes a parameter set at inference through
+τ\* = κ/(1+κ) and one model serves every cost ratio. That separation also buys a
+distribution-free finite-sample coverage guarantee, which a learned loss does not
+provide — a difference that matters little with DeepCog's metropolitan-scale
+measurements over 470 base stations and a great deal at n ≈ 900. Their evaluation is at
+a five-minute horizon on aggregated demand; ours is at lead times to 24 hours on single
+sites.
+
+**SLA-aware prediction and slice resource allocation.** Also close to our framing is the work
 of Tuna and Soysal [2], [3], which predicts NextG slice traffic under explicit SLA
 violation constraints rather than under squared error, and observes — as we do — that a
 symmetric loss is the wrong objective when breaching a service level and wasting capacity
@@ -233,6 +255,13 @@ The consequence for a model that cannot route around it — seasonal-naive RMSE:
 |---|---|---|---|
 | GP | 18.16 | 28.42 | +56% |
 | Robi | 26.58 | 74.12 | **+179%** |
+
+The magnitude of this is not particular to our traces. On the Telecom Italia Milan
+measurements, Mehri et al. [18] report `ARIMA(3,0,4)` at an MSE of 513.53 against
+`SARIMA(1,0,1)(1,0,1,144)` at 61.78 — an 8.3× improvement obtained by setting the
+seasonal period to 144 steps, which is exactly 24 hours at their 10-minute sampling
+interval. The same mechanism, on a different operator's data, at a different sampling
+rate.
 
 Every seasonal statement made on the sample-count axis — STL decompositions, ACF and
 FFT peaks, `AutoReg(lags=24)`, `ARIMA(24,1,0)`, `ExponentialSmoothing(seasonal_periods=24)`
@@ -425,7 +454,8 @@ verify this correspondence empirically rather than only asserting it.
 
 ### 6.2 Calibration
 
-Quantile forecasts are calibrated by split conformal prediction, which is
+Quantile forecasts come from gradient-boosted quantile regression under the pinball
+loss [19]. They are calibrated by split conformal prediction, which is
 distribution-free and finite-sample valid — the right choice at n ≈ 900, where no
 parametric error model is credible. An estimability guard refuses any τ a calibration
 set cannot express (a set of *m* residuals cannot express a level finer than
@@ -445,7 +475,9 @@ hindsight-tuned heuristic on the heuristic's home metric is not a fair test.
 
 (We also implemented a multiplicative conformal variant, on the hypothesis that the
 additive-vs-multiplicative mismatch explained the gap. It did not — −3.1% against
-−2.7% — which is what rules that explanation out.)
+−2.7% — which is what rules that explanation out.) The hindsight-tuned fixed margin we compare
+against below is not a strawman of our own construction: it is the `MAE-post-best`
+baseline of [16], arrived at there by the same reasoning.
 
 **Cost is the right metric**, and is what the whole allocation argument is built on.
 Evaluating conformal at the prescribed τ\* (no test-set information) against the
@@ -878,7 +910,20 @@ Business & Economic Statistics*, vol. 13, no. 3, pp. 253–263, 1995.
 Powerful Approach to Multiple Testing," *Journal of the Royal Statistical Society: Series
 B*, vol. 57, no. 1, pp. 289–300, 1995.
 
-[16] R. Koenker and G. Bassett, "Regression Quantiles," *Econometrica*, vol. 46, no. 1,
+[16] D. Bega, M. Gramaglia, M. Fiore, A. Banchs and X. Costa-Perez, "DeepCog:
+Optimizing Resource Provisioning in Network Slicing With AI-Based Capacity
+Forecasting," *IEEE Journal on Selected Areas in Communications*, vol. 38, no. 2,
+pp. 361–376, 2020. doi:10.1109/JSAC.2019.2959245
+
+[17] D. Bega, M. Gramaglia, M. Fiore, A. Banchs and X. Costa-Perez, "DeepCog:
+Cognitive Network Management in Sliced 5G Networks with Deep Learning," in *IEEE
+INFOCOM 2019 — IEEE Conference on Computer Communications*, pp. 280–288, 2019.
+doi:10.1109/INFOCOM.2019.8737488
+
+[18] H. Mehri, H. Chen and H. Mehrpouyan, "Cellular Traffic Prediction Using Online
+Prediction Algorithms," arXiv:2405.05239, May 2024.
+
+[19] R. Koenker and G. Bassett, "Regression Quantiles," *Econometrica*, vol. 46, no. 1,
 pp. 33–50, 1978.
 
 ---
@@ -886,5 +931,6 @@ pp. 33–50, 1978.
 *Citation check before submission: reference [1]'s full author list could not be retrieved
 (the publisher's page refuses automated access); it is cited as "X. Wang et al." and the
 complete list should be filled in from the PDF. All arXiv entries were verified against the
-arXiv API on 2026-09-17. References [5], [7], [9], [12]–[16] are cited from standard
+arXiv API on 2026-09-17; both DeepCog entries were verified against Crossref on
+2026-09-18. References [5], [7], [9], [12]–[16] are cited from standard
 bibliographic knowledge and should be spot-checked against the originals.*

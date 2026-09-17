@@ -82,8 +82,8 @@ Ordered by how directly they bear on this work.
 **This paper matters to us more than any other on this page, for three reasons.**
 
 1. It does what we do — forecast *capacity* under asymmetric costs, not traffic under
-   squared error — and it is in a top-tier venue. **It is prior work we must cite**, and
-   currently the paper does not.
+   squared error — and it is in a top-tier venue. **It was prior work we had to cite**, and it is
+   now cited — §2 as the closest prior work, §6.3 for the shared baseline.
 2. It reports **cost, not RMSE**, which independently validates our §6.3 argument that
    accuracy is the wrong scoreboard for this problem.
 3. Its `MAE-post-best` baseline is a fixed overprovisioning offset chosen by exhaustive
@@ -152,7 +152,7 @@ different group.
 
 That is strong external support for our audit: we showed seasonal-naive RMSE degrades 56%
 (GP) and 179% (Robi) when the daily lag is 24 samples instead of the measured 17 and 15.
-Same mechanism, same direction. **Cite this alongside §4.1** — a reviewer is far more likely
+Same mechanism, same direction. **Now cited in §4.1** — a reviewer is far more likely
 to accept the point when it is corroborated on someone else's data.
 
 Note also that their online (FLSP) variants beat their rolling counterparts throughout,

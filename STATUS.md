@@ -612,19 +612,22 @@ determinism, lookback/design-matrix agreement.
 
 ---
 
-## Must fix before submission (NEW)
+## DeepCog is now cited (was a must-fix, resolved)
 
-**Cite DeepCog.** Bega et al., *DeepCog*, IEEE INFOCOM 2019 / IEEE JSAC 38(2):361–376,
+Bega et al., *DeepCog*, IEEE INFOCOM 2019 (pp. 280–288) and IEEE JSAC 38(2):361–376,
 2020, does cost-aware *capacity* forecasting under asymmetric over/under-provisioning
-costs — the same problem as §6, in a top-tier venue, and it is not in the paper. Its
-`MAE-post-best` baseline is also the same hindsight-tuned fixed margin §6.3 compares
-against. Leaving it out looks like we do not know the closest prior work.
+costs — the same problem as §6, in a top-tier venue. It is now cited in §2 as the
+closest prior work, and in §6.3, where its `MAE-post-best` baseline turns out to be
+the same hindsight-tuned fixed margin we construct independently.
 
-The positioning is fine once stated: DeepCog trains the asymmetry into the network via a
-custom loss, so changing the cost ratio means retraining; we keep an ordinary forecaster
-and move the asymmetry into a calibrated quantile, so κ is an inference-time dial, and we
-add a distribution-free coverage guarantee they do not have. Details and numbers in
-`docs/BENCHMARKS.md`.
+The positioning, as written: DeepCog trains the asymmetry into the network via a
+custom loss, so the cost ratio is fixed at training time and a different κ needs a
+different model; we keep an ordinary forecaster and move the asymmetry into a
+calibrated quantile, so κ is an inference-time dial and one model serves every cost
+ratio, plus a distribution-free coverage guarantee they do not have. The contributions
+list no longer implies the allocation idea is new — the *mechanism* is.
+
+Numbers and the full comparison are in `docs/BENCHMARKS.md`.
 
 ---
 

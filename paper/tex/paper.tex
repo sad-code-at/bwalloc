@@ -129,7 +129,9 @@ sampling rate rather than assumed (Section~\ref{sec:protocol}).
 traces is concentrated at operationally relevant lead times and is nearly invisible at
 one step (Section~\ref{sec:lead}).
 \item A cost-asymmetric allocation layer with conformal calibration, evaluated on
-provisioning cost rather than forecast error (Section~\ref{sec:alloc}).
+provisioning cost rather than forecast error, in which the cost ratio selects
+the service level at inference time rather than being trained into the
+model~\cite{bega2020deepcog} (Section~\ref{sec:alloc}).
 \item \textbf{Context-conditional calibration}: the observation that hand-labelled
 context acts on the \emph{variance} of demand rather than its level, the demonstration
 that marginal calibration therefore fails inside high-risk contexts, and the repair
@@ -149,7 +151,32 @@ that the loss is symmetric, that one-step-ahead error is the operational quantit
 that the sampling grid is whatever the column index implies. This paper argues all
 three matter, and demonstrates that the third is measurable rather than rhetorical.
 
-\textbf{SLA-aware prediction and slice resource allocation.} Closest to our framing is
+\textbf{Cost-aware capacity forecasting.} The closest prior work to ours is
+DeepCog~\cite{bega2019deepcog,bega2020deepcog}, which makes the same central argument:
+an operator does not want a forecast of traffic minimising absolute error, it wants a
+forecast of the \emph{capacity} to provision, and the two differ because
+over-provisioning and SLA violation carry different costs. DeepCog trains a
+three-dimensional convolutional network with a tunable asymmetric loss and reports
+monetary cost rather than RMSE, reducing operating expenses by 273--381\% against the
+best of four benchmarks at a cost ratio of $\alpha = 2$. One of those benchmarks --- a
+fixed over-provisioning offset selected by exhaustive search over the evaluation data
+--- is the same hindsight-tuned comparator we construct independently in
+Section~\ref{sec:cost}, which we take as evidence that it is the right heuristic to
+measure against.
+
+We differ in mechanism rather than in aim. DeepCog trains the asymmetry into the
+network's weights, so the cost ratio is fixed at training time and a tenant with a
+different $\kappa$ requires a different model. We leave the forecaster untouched and
+place the asymmetry in a calibrated quantile, so $\kappa$ becomes a parameter set at
+inference through $\tau^{*} = \kappa/(1+\kappa)$ and one model serves every cost ratio.
+That separation also buys a distribution-free finite-sample coverage guarantee, which a
+learned loss does not provide --- a difference that matters little with DeepCog's
+metropolitan-scale measurements over 470 base stations and a great deal at
+$n \approx 900$. Their evaluation is at a five-minute horizon on aggregated demand;
+ours is at lead times to 24 hours on single sites.
+
+\textbf{SLA-aware prediction and slice resource allocation.} Also close to our framing
+is
 the work of Tuna and Soysal~\cite{tuna2023multivariate,tuna2023spatiotemporal}, which
 predicts NextG slice traffic under explicit SLA violation constraints rather than under
 squared error, and observes---as we do---that a symmetric loss is the wrong objective
@@ -264,6 +291,13 @@ feature used throughout the standard treatment as the daily lag correlates negat
 with demand on both traces.}
 \label{fig:acf}
 \end{figure}
+
+The magnitude of this is not particular to our traces. On the Telecom Italia Milan
+measurements, Mehri \emph{et al.}~\cite{mehri2024online} report \texttt{ARIMA(3,0,4)} at
+an MSE of 513.53 against \texttt{SARIMA(1,0,1)(1,0,1,144)} at 61.78 --- an $8.3\times$
+improvement obtained by setting the seasonal period to 144 steps, which is exactly 24
+hours at their 10-minute sampling interval. The same mechanism, on a different
+operator's data, at a different sampling rate.
 
 Every seasonal statement made on the sample-count axis---STL decompositions, ACF and
 FFT peaks, \texttt{AutoReg(lags=24)}, \texttt{ARIMA(24,1,0)},
@@ -429,7 +463,9 @@ asserting it.
 
 \subsection{Calibration}
 
-Quantile forecasts are calibrated by split conformal prediction, which is
+Quantile forecasts come from gradient-boosted quantile regression under the pinball
+loss~\cite{koenker1978regression}. They are calibrated by split conformal prediction,
+which is
 distribution-free and finite-sample valid---the right choice at $n \approx 900$, where
 no parametric error model is credible. An estimability guard refuses any $\tau$ a
 calibration set cannot express (a set of $m$ residuals cannot express a level finer
@@ -449,7 +485,10 @@ in advance. Conformal picks its level a priori from $\kappa$. Scoring an a-prior
 method against a hindsight-tuned heuristic on the heuristic's home metric is not a fair
 test. We also implemented a multiplicative conformal variant, on the hypothesis that an
 additive-versus-multiplicative mismatch explained the gap; it did not ($-3.1$\% against
-$-2.7$\%), which is what rules that explanation out.
+$-2.7$\%), which is what rules that explanation out. The hindsight-tuned fixed
+margin we compare against below is not a strawman of our own construction: it is the
+\texttt{MAE-post-best} baseline of~\cite{bega2020deepcog}, arrived at there by the same
+reasoning.
 
 \begin{table}[htbp]
 \caption{Provisioning cost at $\kappa = 10$, against a fixed-margin rule given its best
