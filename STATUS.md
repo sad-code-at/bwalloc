@@ -5,6 +5,11 @@ Last updated: 2026-08-29. Working notes so this can be picked up cold in a new s
 `docs/WALKTHROUGH.md` is the teaching document — run order, vocabulary, what each change
 bought, and how to defend it. This file is the working record; that one is the explanation.
 
+`docs/PROVENANCE.md` maps every method to the paper it came from, separates borrowed
+machinery from this project's own contributions, and marks which citations have actually
+been verified. **Add a row to it in the same commit as any new method or finding** — it
+exists so that "where did this come from?" always has a citable answer.
+
 Plan file: `C:\Users\User\.claude\plans\nested-plotting-bengio.md` (approved).
 Original senior's code, untouched, is at
 `D:\L4-T-1\EEE 402\project\ML-Based-Dynamic-Bandwidth-Allocation-for-Mobile-Data-Usage-main\`.
