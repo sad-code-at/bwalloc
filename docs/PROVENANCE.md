@@ -32,7 +32,9 @@ that shaped a decision without being cited, which is still worth being able to n
 | Multi-step, spatiotemporal traffic prediction under SLA constraints | Paper §2 | Tuna & Soysal, arXiv:2309.03898, 2023 **[cited]** | verified 2026-09-17 |
 | Optimising slice resources against a learned SLA-satisfaction model — the closest prior work to our allocation layer | Paper §2 | Sulaiman, Ahmadi, Sun, Saha, Salahuddin, Boutaba & Saleh, *MicroOpt*, arXiv:2407.18342, 2024 **[cited]** | verified 2026-09-17 |
 | That data quality and preprocessing, not architecture, dominate cellular-traffic prediction results | Supports our §4 audit framing | Vesselinova, Harjula & Ilmonen, *Data Matters: The Case of Predicting Mobile Cellular Traffic*, arXiv:2411.02418, 2024 (IEEE VNC 2025) | verified 2026-09-18 |
-| **That the allocation decision, not the forecast, is the deliverable — and that the original repository contained no allocation at all** | The entire `allocation.py` / `pipeline.py` layer | — | **ours** |
+| **Cost-aware capacity forecasting** — forecast the capacity to provision under asymmetric costs, not the traffic under squared error. The closest prior work to our allocation layer. | Paper §6 framing; `docs/BENCHMARKS.md` | Bega, Gramaglia, Fiore, Banchs & Costa-Pérez, *DeepCog*, IEEE INFOCOM 2019; extended as *DeepCog: Optimizing Resource Provisioning in Network Slicing With AI-Based Capacity Forecasting*, IEEE JSAC 38(2):361–376, 2020 | verified 2026-09-18 — **must be cited; not yet in the paper** |
+| A hindsight-tuned fixed overprovisioning offset as the baseline to beat | Paper §6.3 | DeepCog's `MAE-post-best` baseline (same construction, arrived at independently) | verified 2026-09-18 |
+| **That the allocation decision, not the forecast, is the deliverable — and that the original repository contained no allocation at all** | The entire `allocation.py` / `pipeline.py` layer | — | **ours** (but see DeepCog above — the *idea* is not new, our *mechanism* is) |
 
 ## 2. The audit
 
@@ -40,6 +42,7 @@ that shaped a decision without being cited, which is still worth being able to n
 |---|---|---|---|
 | Target leakage: a feature computed from data at or after the target's timestamp inflates results invisibly | `features.assert_no_leakage`, paper §4.2, gate `test_no_target_leakage` | Kaufman, Rosset & Perlich, *Leakage in Data Mining: Formulation, Detection, and Avoidance*, KDD 2011; ACM TKDD 6(4), 2012 | standard |
 | **That these two traces are sampled at 86 and 99 min, not hourly, and that `lag_24` therefore spans 34.4 h and anti-correlates with demand** | `data.SamplingProfile`, paper §4.1 | — | **ours** |
+| Independent corroboration that the seasonal period must be set correctly: ARIMA(3,0,4) scores MSE 513.53 on Milan where SARIMA with period 144 (= 24 h at 10-min sampling) scores 61.78 — an 8.3× gain from the period alone | Supports paper §4.1 | Mehri, Chen & Mehrpouyan, *Cellular Traffic Prediction Using Online Prediction Algorithms*, arXiv:2405.05239, 2024 | verified 2026-09-18 |
 | **That the sampling interval predicts whether a timestamp-blind foundation model will work on a trace** | Paper §9.2 | — | **ours** |
 | **That the original's sequence-vs-tree ranking was confounded by an unequal split (600 rows vs 88)** | Paper §4.5, `run_sequence.py` | — | **ours** |
 | **That the corrected feature design was under-lagged, costing 18% RMSE on GP** | Paper §4.5, `sequence_lag_depth.csv` | — | **ours** |
@@ -143,6 +146,6 @@ the paper does not imply otherwise.
 
 ---
 
-*Last updated 2026-09-18. arXiv entries verified against the arXiv API on the dates
+*Last updated 2026-09-18. Published performance figures are collected separately in [`BENCHMARKS.md`](BENCHMARKS.md). arXiv entries verified against the arXiv API on the dates
 shown. Entries marked "standard" are classical references stated from bibliographic
 knowledge and should be spot-checked against the originals before submission.*
