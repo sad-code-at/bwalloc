@@ -122,23 +122,81 @@ sparse, hand-made and noisy.
 
 1. A sampling-aware, leak-safe evaluation protocol for irregularly sampled operator
    traces, in which every seasonal hyperparameter is *derived* from the measured
-   sampling rate rather than assumed (§3).
+   sampling rate rather than assumed (§4).
 2. A multi-horizon evaluation showing that the value of learned forecasting on these
    traces is concentrated at operationally relevant lead times and is nearly invisible
-   at one step (§4).
+   at one step (§5).
 3. A cost-asymmetric allocation layer with conformal calibration, evaluated on
-   provisioning cost rather than on forecast error (§5).
+   provisioning cost rather than on forecast error (§6).
 4. **Context-conditional calibration**: the observation that hand-labelled context acts
    on the *variance* of demand rather than its level, the demonstration that marginal
-   calibration therefore fails inside high-risk contexts, and the repair (§6).
+   calibration therefore fails inside high-risk contexts, and the repair (§7).
 5. A cold-start transfer study answering how much history a newly deployed site needs
-   (§7), and a zero-shot foundation-model comparison showing that the sampling-rate
-   measurement of §3 predicts, in advance, whether such a model will work at all
-   (§8).
+   (§8), and a zero-shot foundation-model comparison showing that the sampling-rate
+   measurement of §4 predicts, in advance, whether such a model will work at all
+   (§9).
 
 ---
 
-## 2. Data
+## 2. Related work
+
+**Cellular traffic prediction.** The applied literature on mobile traffic forecasting is
+large and well surveyed [1]. Its dominant shape is the one we depart from: assemble lag
+and calendar features, train a panel of models — gradient boosting, ARIMA, an LSTM or a
+spatiotemporal variant — and rank them by RMSE or MAPE on a held-out split. Surveys
+report state-of-the-art error on standard datasets, and the implicit claim is that the
+lowest-error model is the best system. Three assumptions ride along unexamined: that the
+loss is symmetric, that one-step-ahead error is the operational quantity, and that the
+sampling grid is whatever the column index implies. This paper is an argument that all
+three matter, and a demonstration that the third is measurable rather than rhetorical.
+
+**SLA-aware prediction and slice resource allocation.** Closest to our framing is the work
+of Tuna and Soysal [2], [3], which predicts NextG slice traffic under explicit SLA
+violation constraints rather than under squared error, and observes — as we do — that a
+symmetric loss is the wrong objective when breaching a service level and wasting capacity
+cost different amounts. MicroOpt [4] goes further into the decision layer, optimising slice
+resources against a learned model of SLA satisfaction. We differ in three ways. Those
+systems train an asymmetric or constrained *point* predictor; we keep an ordinary point
+model and move the asymmetry into a calibrated quantile, which decouples the forecaster
+from the cost ratio and lets κ be changed without retraining. Their guarantees are
+empirical over large regularly sampled datasets; ours are distribution-free and
+finite-sample, which is what ~900 irregularly sampled points can actually support. And
+neither conditions the service level on operating context, which is our central
+contribution.
+
+**Conformal prediction.** We build directly on the conformal framework [5], [6]: given
+exchangeable residuals, a calibration quantile yields finite-sample marginal coverage with
+no distributional assumption. Conformalized quantile regression [7] makes interval width
+respond to local difficulty, and Mondrian conformal prediction partitions the calibration
+set into groups to obtain per-group validity. Exact conditional coverage is impossible
+without assumptions, and Gibbs, Cherian and Candès [8] characterise what is achievable
+against a specified class of shifts. Our §7 is an applied instance of that tension: the
+groups are not statistical constructs but hand-labelled operating conditions — rainfall,
+power cuts — and the finding is that a marginally valid allocator is systematically
+invalid inside the group where the network is most stressed. Separately, exchangeability
+itself fails on a drifting two-month trace; adaptive conformal inference [9] updates the
+requested level online from realised breaches and restores long-run coverage without
+assuming exchangeability at all. §10 reports that this is not a theoretical nicety on these
+traces but the difference between meeting a service level in 2 of 30 configurations and in
+30 of 30.
+
+**Time-series foundation models.** Chronos [10] tokenises scaled time-series values and
+trains a language-model architecture over them; TimesFM [11] is a decoder-only model
+pretrained on a large corpus. Both are marketed on zero-shot transfer to unseen series.
+Neither consumes timestamps — they read a bare sequence of values — which is
+inconsequential on a regular grid and, we show in §9, decisive on an irregular one. We are
+not aware of prior work linking zero-shot foundation-model performance to the
+misregistration between a trace's sampling interval and its dominant period, and we offer
+that as a cheap pre-deployment diagnostic.
+
+**Evaluation methodology.** Our protocol follows standard forecasting practice that the
+applied cellular literature frequently omits: rolling-origin evaluation rather than a
+single split [12], scale-free error reporting against a naive baseline [13], and
+Diebold–Mariano tests [14] with Benjamini–Hochberg false-discovery control [15] when
+ranking a panel of models. None of this is novel. It is included because applying it to
+these traces reverses several published conclusions, which is itself the finding of §4.
+
+## 3. Data
 
 | | Grameenphone Dhaka | Robi Dhaka-3 |
 |---|---|---|
@@ -152,13 +210,13 @@ sparse, hand-made and noisy.
 Both traces carry hand-annotated local context (`is_rain`, `is_political_gathering`,
 `is_offer`, `is_powercut`, `is_drama`, …). This annotation is the distinctive asset of
 the dataset — it is not something that can be downloaded for a Dhaka cell site — and
-§6 is built on it.
+§7 is built on it.
 
 ---
 
-## 3. A corrected evaluation protocol
+## 4. A corrected evaluation protocol
 
-### 3.1 The traces are not hourly
+### 4.1 The traces are not hourly
 
 Both traces are treated as hourly in the standard treatment, so a lag of 24 samples is
 used as the daily lag. At 86 min per sample that lag spans 34.4 hours and sits roughly
@@ -184,7 +242,7 @@ by Fourier terms in wall-clock time, which are exact under irregular sampling.
 
 *Figure 1: autocorrelation by lag, with the measured period and lag 24 marked.*
 
-### 3.2 Target leakage
+### 4.2 Target leakage
 
 Rolling statistics computed without a preceding shift place `y_t` inside its own
 feature vector. Restoring the shift moves the best GP result from 6.54 to 19.30 RMSE
@@ -194,7 +252,7 @@ predicting the training mean (18.87).
 We enforce this structurally: `assert_no_leakage` perturbs the final target value and
 asserts that no feature column moves, and the benchmark refuses to run if it fails.
 
-### 3.3 Baselines, folds, and significance
+### 4.3 Baselines, folds, and significance
 
 All models share one rolling-origin fold schedule (8 expanding-window folds), every
 table reports naive baselines (persistence, seasonal-naive at the measured period,
@@ -214,7 +272,7 @@ Corrected one-step benchmark (mean ± sd across folds):
 
 *Figure 2: corrected benchmark with fold spreads and the persistence line.*
 
-### 3.4 A negative result: the correction does not improve accuracy
+### 4.4 A negative result: the correction does not improve accuracy
 
 The feature ablation is reported in full because it cuts against the correction. On
 both operators, a faithful reproduction of the original feature design (with the leak
@@ -229,13 +287,13 @@ removed) is *within noise of, and on Robi slightly better than*, the corrected d
 
 Tree ensembles route around a mis-specified `lag_24` by leaning on the short lags, so
 the sampling-rate error costs almost nothing in RMSE. Its cost is **interpretive**:
-every seasonal claim in the standard treatment is stated on the wrong axis, and §3.1
+every seasonal claim in the standard treatment is stated on the wrong axis, and §4.1
 shows what the error costs a model that cannot route around it. We report this rather
 than bury it.
 
 ---
 
-## 4. Lead time
+## 5. Lead time
 
 Every result above, and every result in the studies this extends, predicts `y_t` with
 `y_{t−1}` in hand. No network provisions from that: the capacity decision for an
@@ -287,9 +345,9 @@ Two secondary findings:
 
 ---
 
-## 5. Allocation
+## 6. Allocation
 
-### 5.1 Cost model
+### 6.1 Cost model
 
 For an allocation `A` against realised demand `y`, with over-provisioning unit cost
 `c_over` and under-provisioning κ times more expensive:
@@ -303,7 +361,7 @@ $$\tau^* = \frac{\kappa}{1 + \kappa}$$
 so the operator's cost ratio *selects the quantile*. κ = 10 gives τ\* = 0.909. We
 verify this correspondence empirically rather than only asserting it.
 
-### 5.2 Calibration
+### 6.2 Calibration
 
 Quantile forecasts are calibrated by split conformal prediction, which is
 distribution-free and finite-sample valid — the right choice at n ≈ 900, where no
@@ -311,7 +369,7 @@ parametric error model is credible. An estimability guard refuses any τ a calib
 set cannot express (a set of *m* residuals cannot express a level finer than
 1/(m+1); τ = 0.99 needs 99) rather than silently returning the largest residual.
 
-### 5.3 What to measure, and a comparison that does not work
+### 6.3 What to measure, and a comparison that does not work
 
 The natural comparison — capacity required at an equal SLA violation rate, against the
 `A = 1.3 ŷ` rule operators use — **does not favour our method and we do not claim it.**
@@ -344,15 +402,15 @@ fixed-margin rule's *best* hindsight-tuned margin — a setup biased against us:
 
 Read the pattern, not the winner: **conditioning the margin on predicted uncertainty
 beats the tuned heuristic on both operators; calibrating one margin for all conditions
-loses to it on both.** That is §6's idea, measured in money.
+loses to it on both.** That is §7's idea, measured in money.
 
 *Figure 3: capacity–risk frontier. Figure 7: provisioning cost by family.*
 
 ---
 
-## 6. Context-conditional calibration
+## 7. Context-conditional calibration
 
-### 6.1 Context acts on variance, not level
+### 7.1 Context acts on variance, not level
 
 Welch t-tests on the level and Levene tests on the spread of hour-detrended residuals,
 GP:
@@ -377,7 +435,7 @@ prediction interval can. This converts weak mean-predictors into useful **risk**
 signals: the flags need not predict demand well, only mark when the forecast is less
 trustworthy.
 
-### 6.2 The failure, and the repair
+### 7.2 The failure, and the repair
 
 Groups are formed by priority to keep them disjoint, and merged into two —
 `elevated_risk = rain ∪ gathering` (199 rows) against `baseline` (689) — because a
@@ -430,7 +488,7 @@ step.
 
 The capacity cost of all of this is near-identical (~1.18× demand at τ = 0.95).
 
-### 6.3 The prediction is falsifiable, and it is null on Robi
+### 7.3 The prediction is falsifiable, and it is null on Robi
 
 The audit finds **no Robi flag with elevated residual variance** — `is_powercut` and
 `is_event` mark *calmer* periods — and Robi carries no rain annotation. The method
@@ -444,9 +502,9 @@ falsifiable prediction confirmed in both directions on two operators is stronger
 
 *Figure 4: per-context coverage, both operators, three levels. Figure 6: flag audit.*
 
-### 6.4 A caveat on the cost result
+### 7.4 A caveat on the cost result
 
-On Robi the adaptive cost gain (§5.3) cannot be credited to context. The uncertainty
+On Robi the adaptive cost gain (§6.3) cannot be credited to context. The uncertainty
 model learns σ̂(x) from the whole feature vector, so where no flag carries variance
 signal the adaptivity comes from time and lag features. The supportable claim is that
 *conditioning the margin on predicted uncertainty pays*; only on GP is that uncertainty
@@ -454,10 +512,10 @@ demonstrably contextual.
 
 ---
 
-## 7. Cold start
+## 8. Cold start
 
 How much of its own history does a newly deployed site need? Four arms on a fixed GP
-test window, Robi as the source. This is possible only because §3 defines lags in
+test window, Robi as the source. This is possible only because §4 defines lags in
 wall-clock hours: at 86 and 99 min per sample, a design matrix indexed by sample count
 is not comparable across sites.
 
@@ -476,21 +534,21 @@ nothing by 5–7, and −10% by 21 days where the borrowed weights hold the mode
 **The crossover is about a week.**
 
 At a 1.5-hour lead the study answers nothing — no arm beats persistence — which is a
-second demonstration of §4.
+second demonstration of §5.
 
 *Figure 8: cold-start curves at both horizons.*
 
 ---
 
-## 8. Zero-shot foundation models
+## 9. Zero-shot foundation models
 
 With ~900 samples per site, is bespoke per-operator training worth it, or does a model
 that has never seen this network do just as well? We evaluate Chronos-Bolt Small
 strictly zero-shot -- no fitting, no fine-tuning, not even a scaling constant -- on the
-same fold schedule, lead times and test blocks as §4. It runs on CPU in about seven
+same fold schedule, lead times and test blocks as §5. It runs on CPU in about seven
 minutes.
 
-### 8.1 The answer depends entirely on the operator
+### 9.1 The answer depends entirely on the operator
 
 | lead | GP: zero-shot | best trained | vs trained | vs persistence |
 |---|---|---|---|---|
@@ -513,9 +571,9 @@ by as much as 54%, and trails a model trained on the site's own history by only
 7.5–18.6%. On Robi it trails by 47–92% and is *worse than persistence* at both the
 shortest and the longest lead.
 
-### 8.2 Why, and it is predictable in advance
+### 9.2 Why, and it is predictable in advance
 
-The gap is not random, and §3 explains it. A foundation model consumes a bare sequence
+The gap is not random, and §4 explains it. A foundation model consumes a bare sequence
 of values with no timestamps. It cannot be told that a step is 86 minutes on one trace
 and 99 on the other, so it must infer periodicity from the sequence itself -- and on an
 irregularly sampled trace the daily cycle does not occupy a whole number of steps:
@@ -533,14 +591,14 @@ horizon (+92% against trained, +65% against persistence), the one setting where 
 daily cycle is the whole signal.** The naive baseline wins there simply by stepping
 back one *measured* cycle -- the thing the foundation model cannot do.
 
-This makes the sampling-rate correction of §3 more than a repair of prior work. It is
+This makes the sampling-rate correction of §4 more than a repair of prior work. It is
 a *diagnostic*: measuring the sampling interval tells an operator in advance whether a
 timestamp-blind foundation model will work on their trace. We are not aware of this
 being stated in the zero-shot forecasting literature, and it is cheap to check.
 
-### 8.3 Its quantiles cannot be used for provisioning as they come
+### 9.3 Its quantiles cannot be used for provisioning as they come
 
-Chronos-Bolt is quantile-native, so it reaches the allocation layer of §5 with no
+Chronos-Bolt is quantile-native, so it reaches the allocation layer of §6 with no
 quantile-regression step. But its quantile head was trained on levels 0.1 to 0.9 only,
 and a request above that is silently clipped -- a τ = 0.95 request returns the τ = 0.90
 numbers unchanged. Since τ* = κ/(1+κ), a ceiling of 0.9 corresponds to a cost asymmetry
@@ -562,7 +620,7 @@ On Robi the zero-shot 80% interval delivers 66%. Split-conformal calibration on
 held-out residuals repairs every level on both traces, including the ones the model
 cannot express natively.
 
-So the allocation machinery of §5 is not an alternative to the foundation model; it is
+So the allocation machinery of §6 is not an alternative to the foundation model; it is
 what makes the foundation model deployable. That is the useful synthesis: **a zero-shot
 forecaster supplies the point prediction cheaply, and conformal calibration supplies
 the service-level guarantee it cannot provide itself.**
@@ -571,7 +629,7 @@ the service-level guarantee it cannot provide itself.**
 
 ---
 
-## 9. A negative result on coverage, and its repair
+## 10. A negative result on coverage, and its repair
 
 Enforcing the ±2% coverage check on real backtest output rather than synthetic data:
 **249 of 360 configurations fail, 232 of them by under-covering; of the 30 marginal
@@ -609,13 +667,13 @@ is the property that matters.
 
 This is *marginal* coverage, and we do not overstate it: counting per-group rows as
 well, ACI passes 61 of 90 configurations against 12–20 for the static methods. ACI is
-not group-conditional, so it does not subsume §6 — the two repairs address different
+not group-conditional, so it does not subsume §7 — the two repairs address different
 failures and are complementary. A per-group online update is the obvious next step and
 is untried here.
 
 ---
 
-## 10. Limitations
+## 11. Limitations
 
 905 and 888 observations from two cell sites over ~2 months. The sample size does not
 support strong claims about model superiority, and the span cannot speak to seasonal or
@@ -624,8 +682,8 @@ inter-rater check. Robi carries five of the nine flags and no rain annotation, s
 context-conditional results rest on an 89-row group and are directional only.
 
 Two limits are measured rather than asserted, and both are reported above: correcting
-the feature design does not improve accuracy (§3.4), and split-conformal coverage fails
-its ±2% target on these traces (§8). Absolute coverage guarantees should not be claimed
+the feature design does not improve accuracy (§4.4), and split-conformal coverage fails
+its ±2% target on these traces (§9). Absolute coverage guarantees should not be claimed
 from the static conformal results; the context-conditional comparison is unaffected,
 being a relative comparison between methods calibrated on identical data.
 
@@ -636,7 +694,7 @@ is handled by a method that does not assume it.
 
 ---
 
-## 11. Conclusion
+## 12. Conclusion
 
 Treating capacity planning as a forecasting problem scored by RMSE gets three things
 wrong at once, and correcting each changes what the data says.
@@ -707,9 +765,64 @@ python experiments/run_transfer.py
 python experiments/run_coverage_gate.py
 ```
 
-## Still to do
+## References
 
-- Related-work positioning (citations are listed at the end of the study plan).
-- Conversion to the venue's LaTeX template.
-- Optional: TimesFM alongside Chronos-Bolt in §8, and a per-group *online* calibration
-  combining §6 and §9 — the clearest open methodological question this work raises.
+[1] X. Wang *et al.*, "A Survey on Deep Learning for Cellular Traffic Prediction,"
+*Intelligent Computing*, vol. 3, art. 0054, Jan. 2024. doi:10.34133/icomputing.0054
+
+[2] E. Tuna and A. Soysal, "Multivariate and Multi-step Traffic Prediction for NextG
+Networks with SLA Violation Constraints," arXiv:2304.11156, Apr. 2023.
+
+[3] E. Tuna and A. Soysal, "Multivariate, Multi-step, and Spatiotemporal Traffic
+Prediction for NextG Network Slicing under SLA Constraints," arXiv:2309.03898, Sep. 2023.
+
+[4] M. Sulaiman, M. Ahmadi, B. Sun, N. Saha, M. A. Salahuddin, R. Boutaba, and A. Saleh,
+"MicroOpt: Model-driven Slice Resource Optimization in 5G and Beyond Networks,"
+arXiv:2407.18342, Jul. 2024.
+
+[5] V. Vovk, A. Gammerman, and G. Shafer, *Algorithmic Learning in a Random World*.
+New York: Springer, 2005.
+
+[6] A. N. Angelopoulos, R. F. Barber, and S. Bates, "Theoretical Foundations of Conformal
+Prediction," arXiv:2411.11824, Nov. 2024. (To be published by Cambridge University Press.)
+
+[7] Y. Romano, E. Patterson, and E. J. Candès, "Conformalized Quantile Regression," in
+*Advances in Neural Information Processing Systems 32 (NeurIPS)*, 2019.
+
+[8] I. Gibbs, J. J. Cherian, and E. J. Candès, "Conformal Prediction With Conditional
+Guarantees," arXiv:2305.12616, May 2023.
+
+[9] I. Gibbs and E. J. Candès, "Adaptive Conformal Inference Under Distribution Shift," in
+*Advances in Neural Information Processing Systems 34 (NeurIPS)*, 2021.
+
+[10] A. F. Ansari, L. Stella, C. Turkmen, X. Zhang, P. Mercado, H. Shen, O. Shchur,
+S. S. Rangapuram, S. Pineda Arango, S. Kapoor, J. Zschiegner, D. C. Maddix, H. Wang,
+M. W. Mahoney, K. Torkkola, A. G. Wilson, M. Bohlke-Schneider, and Y. Wang, "Chronos:
+Learning the Language of Time Series," arXiv:2403.07815, Mar. 2024.
+
+[11] A. Das, W. Kong, R. Sen, and Y. Zhou, "A decoder-only foundation model for
+time-series forecasting," arXiv:2310.10688, Oct. 2023.
+
+[12] L. J. Tashman, "Out-of-sample tests of forecasting accuracy: an analysis and review,"
+*International Journal of Forecasting*, vol. 16, no. 4, pp. 437–450, 2000.
+
+[13] R. J. Hyndman and A. B. Koehler, "Another look at measures of forecast accuracy,"
+*International Journal of Forecasting*, vol. 22, no. 4, pp. 679–688, 2006.
+
+[14] F. X. Diebold and R. S. Mariano, "Comparing Predictive Accuracy," *Journal of
+Business & Economic Statistics*, vol. 13, no. 3, pp. 253–263, 1995.
+
+[15] Y. Benjamini and Y. Hochberg, "Controlling the False Discovery Rate: A Practical and
+Powerful Approach to Multiple Testing," *Journal of the Royal Statistical Society: Series
+B*, vol. 57, no. 1, pp. 289–300, 1995.
+
+[16] R. Koenker and G. Bassett, "Regression Quantiles," *Econometrica*, vol. 46, no. 1,
+pp. 33–50, 1978.
+
+---
+
+*Citation check before submission: reference [1]'s full author list could not be retrieved
+(the publisher's page refuses automated access); it is cited as "X. Wang et al." and the
+complete list should be filled in from the PDF. All arXiv entries were verified against the
+arXiv API on 2026-09-17. References [5], [7], [9], [12]–[16] are cited from standard
+bibliographic knowledge and should be spot-checked against the originals.*
