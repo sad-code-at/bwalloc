@@ -10,9 +10,12 @@ xgboost>=2.0            # 2.0+ needed for objective="reg:quantileerror"
 lightgbm>=4.0
 statsmodels>=0.14       # STL, ARIMA, Holt-Winters comparisons in the audit notebook
 
-# Optional — deep sequence models (CNN/LSTM/GRU comparisons). Nothing in this
-# repository currently uses torch: every model here is scikit-learn or XGBoost and
-# runs on CPU. bwalloc.set_seed() seeds torch only if it happens to be installed.
+# Deep sequence models — the original study's CNN / LSTM / GRU / RNN architectures,
+# re-run on the corrected protocol by experiments/run_sequence.py. Imported lazily by
+# bwalloc.sequence, so the rest of the package still works without it; the sequence
+# test gates skip rather than fail when it is absent. CPU is sufficient — the models
+# are tiny and the series is ~900 points.
+torch>=2.0
 
 # Optional — zero-shot time-series foundation model baselines.
 # Needed only by experiments/run_foundation.py. Pulls in torch and transformers;

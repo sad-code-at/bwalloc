@@ -20,7 +20,7 @@ backup, so a lost laptop no longer loses the project.
 
 ## Done and verified
 
-**Scaffold + library** — complete and tested. `pytest tests/` → **46 passed**.
+**Scaffold + library** — complete and tested. `pytest tests/` → **52 passed**.
 
 | module | status |
 |---|---|
@@ -36,7 +36,7 @@ backup, so a lost laptop no longer loses the project.
 | `allocation.py` | done — cost model, policies, Pareto sweep |
 | `pipeline.py` | done — end-to-end allocation backtest |
 | `metrics.py`, `stats.py`, `plots.py` | done (`plots.py` still never executed) |
-| `tests/test_bwalloc.py` | done — 47 gates, all passing |
+| `tests/test_bwalloc.py` | done — 52 gates, all passing |
 
 **Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py`,
 `run_horizon.py`, `run_coverage_gate.py`. Every table is in `experiments/results/`.
@@ -545,6 +545,68 @@ Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
 
 ---
 
+## Sequence models — done, and the answer changes a paper claim (NEW, verified)
+
+`experiments/run_sequence.py`, `src/bwalloc/sequence.py` (torch, CPU, ~4 min total).
+The original's four architectures (`Conv1D(64,3)`, `LSTM(64)`, `GRU(64)`,
+`SimpleRNN(50)`), same 30 epochs, on the corrected fold schedule, every model reading
+the identical univariate window of 24 consecutive sample lags.
+
+**Why the original's ranking was meaningless:** its sequence models trained on
+`train_size=0.7` (~600 rows) while its tree models got the broken date split's **88
+rows**. CNN 9.69 vs XGBoost 13.91 compared 600 training rows to 88.
+
+**GP — the CNN genuinely wins, and significantly:**
+
+| model | RMSE | vs persistence | originally reported |
+|---|---|---|---|
+| **cnn** | **7.875 ± 1.03** | **−35.3%** | 9.69 |
+| gru | 8.559 | −29.6% | 12.14 |
+| rnn | 8.625 | −29.1% | 10.06 |
+| random_forest | 8.673 | −28.7% | 14.96 |
+| lstm | 8.816 | −27.5% | 10.67 |
+| xgboost | 8.846 | −27.3% | 13.91 |
+| ridge | 8.879 | −27.0% | — |
+| persistence | 12.164 | — | — |
+
+DM vs random_forest: **cnn p = 0.003, BH-significant.** Every other pair ties.
+
+**Robi — nothing separates.** gru 19.876, ridge 20.143, cnn 20.160, rnn 20.217,
+lstm 20.293, random_forest 20.519, xgboost 21.239. No significant pair.
+
+### The real finding is lag depth, and it tempers §5
+
+On one common row index (881 GP / 864 Robi rows, identical folds), random forest:
+
+| configuration | GP | Robi |
+|---|---|---|
+| full corrected design | 10.562 | 20.722 |
+| lags 1–8 only | 9.136 | 21.210 |
+| lags 1–12 only | 8.863 | 20.929 |
+| **lags 1–24 only** | **8.673** | **20.519** |
+| **full corrected + lags 1–24** | **8.651** | 20.529 |
+
+The control (`full + lags1_24` = 8.651 ≈ `lags1_24_only` = 8.673) proves the gain is
+**window depth**, not the removal of Fourier/context, which stay neutral as §4.4 found.
+**The corrected design was under-lagged; on GP that cost 18% RMSE.**
+
+**This affects the paper's §5 claim.** §5 says a learned model beats persistence by
+only 14% at one step and reads the value of learning as living at longer leads. At
+depth 24 that one-step margin is 29–35% on GP. The *direction* of the lead-time
+argument is unaffected (the naive forecaster still degrades far faster), but the
+one-step regime is less unfavourable than stated. §4.5 of the paper flags this
+explicitly rather than letting it stand.
+
+**Not done:** `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` all
+still use the sparse four-lag design. Re-running them at depth 24 is the obvious next
+step and would change the headline multi-horizon numbers. Decide before submitting.
+
+Tables: `sequence_{gp,robi}_{perfold,summary,dm}.csv`, `sequence_lag_depth.csv`.
+Gates: 5 new (52 total) — window chronology, contiguity, fit-window-only scaling,
+determinism, lookback/design-matrix agreement.
+
+---
+
 ## What is still not done
 
 - **TimesFM** alongside Chronos-Bolt in C3. Optional; Chronos-Bolt already answers
@@ -561,8 +623,12 @@ Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
   author block is a placeholder, and reference [1]'s author list is incomplete because
   the publisher blocks automated access. The seven arXiv references were verified against
   the arXiv API; the classical ones were not machine-checked.
-- Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a
-  reported table; LightGBM/sklearn `QuantileGBM` backends untested locally.
+- **Re-run the horizon / allocation / coverage studies at lag depth 24.** This is now
+  the most consequential open item: the sequence study showed the four-lag design costs
+  18% RMSE on GP, and every downstream result inherits it.
+- Quantile-LSTM not implemented (the point forecasters now are — see `sequence.py`);
+  `pinball_loss` implemented but never used in a reported table; LightGBM/sklearn
+  `QuantileGBM` backends untested locally.
 
 ---
 
@@ -583,11 +649,12 @@ Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
 ```bash
 cd "D:/L4-T-1/EEE 402/project/bwalloc"
 pip install -r requirements.txt
-PYTHONPATH=src python -m pytest tests/ -q      # 47 gates, ~30 s
+PYTHONPATH=src python -m pytest tests/ -q      # 52 gates, ~30 s
 python experiments/run_audit.py                # ~1 min
 python experiments/run_benchmark.py            # ~4 min
 python experiments/run_allocation.py           # ~10 min
 python experiments/run_horizon.py              # ~20 min
+python experiments/run_sequence.py              # ~4 min, needs torch
 python experiments/run_transfer.py              # ~2 min
 python experiments/run_foundation.py           # ~7 min, needs chronos-forecasting
 python experiments/run_coverage_gate.py        # instant, reads CSVs only

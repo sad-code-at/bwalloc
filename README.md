@@ -29,6 +29,7 @@ every number reproduced from `experiments/results/` and gated by `pytest tests/`
 | 5 | **Context-conditional** | Context acts on *variance*, not level: `is_rain` raises residual σ by 33%. Holds on GP, correctly null on Robi. | `run_allocation.py` |
 | 6 | **Cold start** | A model trained on the *other* operator beats persistence with zero local training data. The crossover is **about a week**. | `run_transfer.py` |
 | 7 | **Zero-shot** | Chronos-Bolt works on GP and fails on Robi — and the sampling interval predicts which, in advance. | `run_foundation.py` |
+| 8 | **Sequence models** | The senior's CNN/LSTM ranking was confounded by an unequal split. Re-run fairly, the CNN *does* win on GP (7.88, p = 0.003) and everything ties on Robi — and the real lesson is that the corrected design was under-lagged by 18%. | `run_sequence.py` |
 | — | **Coverage gate** | Static conformal meets its ±2% target in 2 of 30 configurations. Online (ACI) meets it in **30 of 30**. | `run_coverage_gate.py` |
 
 ### Where to read what
@@ -271,10 +272,11 @@ python experiments/run_audit.py         # data audit, seasonality, flag validati
 python experiments/run_benchmark.py     # corrected benchmark + ablation + DM tests
 python experiments/run_allocation.py    # capacity frontier + context-conditional coverage
 python experiments/run_horizon.py       # accuracy and allocation vs lead time (~15 min)
+python experiments/run_sequence.py      # CNN/LSTM/GRU/RNN vs trees (~4 min, torch)
 python experiments/run_transfer.py      # cross-operator cold start (~2 min)
 python experiments/run_foundation.py    # zero-shot Chronos-Bolt (~7 min, CPU)
 python experiments/run_coverage_gate.py # the +/-2% coverage check, on real output
-pytest tests/                           # 47 verification gates
+pytest tests/                           # 52 verification gates
 ```
 
 All tables land in `experiments/results/` as CSV; figures read only from there, so the
@@ -296,6 +298,7 @@ src/bwalloc/
   evaluate.py            backtest harness; Diebold-Mariano with FDR control
   context.py             flag validation, disjoint groups, the uncertainty model
   conformal.py           marginal, relative, locally adaptive, Mondrian, and online (ACI)
+  sequence.py            univariate CNN / LSTM / GRU / RNN on the corrected protocol
   allocation.py          cost model, allocation policies, capacity-risk frontier
   pipeline.py            end-to-end allocation backtest
   metrics.py             RMSE/MAE/MASE/pinball; SLA rate, overprovisioning, cost, coverage
@@ -325,7 +328,7 @@ impossible rather than merely discouraged.
 
 ## Verification gates
 
-`pytest tests/` encodes the specific failures found in the earlier work so a refactor
+`pytest tests/` (52 gates) encodes the specific failures found in the earlier work so a refactor
 cannot silently reintroduce them:
 
 | gate | what it protects |

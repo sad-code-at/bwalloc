@@ -291,6 +291,68 @@ every seasonal claim in the standard treatment is stated on the wrong axis, and 
 shows what the error costs a model that cannot route around it. We report this rather
 than bury it.
 
+### 4.5 Sequence models, and what actually drove the original's ranking
+
+The standard treatment reported a CNN at 9.69 RMSE on GP against XGBoost at 13.91 and
+concluded the sequence architectures were superior. That comparison was confounded: the
+sequence models were fitted on a `train_size=0.7` split (~600 rows) while the tree
+models went through the `lag_336` → `dropna()` → date-split path that left **88
+training rows**. The reported gap is the split, not the architecture.
+
+We re-run those architectures — the same shapes and widths (`Conv1D(64, 3)`,
+`LSTM(64)`, `GRU(64)`, `SimpleRNN(50)`), the same 30 epochs — on the corrected fold
+schedule, with every model reading the identical univariate window of 24 consecutive
+sample lags that the original gave them (`input_shape=(lookback, 1)`). Any remaining
+difference is then attributable to architecture alone.
+
+| model | GP RMSE | vs persistence | originally reported |
+|---|---|---|---|
+| **CNN** | **7.88 ± 1.03** | **−35.3%** | 9.69 |
+| GRU | 8.56 ± 1.03 | −29.6% | 12.14 |
+| RNN | 8.63 ± 0.87 | −29.1% | 10.06 |
+| random forest | 8.67 ± 1.43 | −28.7% | 14.96 |
+| LSTM | 8.82 ± 0.80 | −27.5% | 10.67 |
+| XGBoost | 8.85 ± 1.66 | −27.3% | 13.91 |
+| ridge | 8.88 ± 1.33 | −27.0% | — |
+| *persistence* | *12.16 ± 1.09* | — | *never computed* |
+
+**On GP the CNN wins, and the margin is real**: Diebold–Mariano against random forest
+gives p = 0.003, significant under BH correction. Every other pair in the table is a
+tie. On Robi nothing separates: GRU 19.88, ridge 20.14, CNN 20.16, RNN 20.22, LSTM
+20.29, random forest 20.52, and no pairwise comparison is significant.
+
+So the original's *conclusion* survives on one operator while its *evidence* does not.
+That is worth stating precisely, because the two are independent: a confounded
+comparison can still reach a true answer, and the corrected protocol is what
+distinguishes the cases — confirming the ranking on GP and showing it is an artefact
+on Robi, where the sequence models' apparent 20–30% margins collapse to ties.
+
+**The larger finding is about lag depth, not architecture.** The univariate window
+carries 24 consecutive lags where the corrected design of §4.3 carries four. Scoring a
+ladder of configurations on one common row index, so the fold schedule cannot differ:
+
+| configuration (random forest) | GP | Robi |
+|---|---|---|
+| full corrected design | 10.56 | 20.72 |
+| lags 1–8 only | 9.14 | 21.21 |
+| lags 1–12 only | 8.86 | 20.93 |
+| **lags 1–24 only** | **8.67** | **20.52** |
+| **full corrected design + lags 1–24** | **8.65** | 20.53 |
+
+The control settles it. Adding the dense lag window *to* the full design recovers the
+entire gain (8.65 against 8.67), so the improvement is the depth of the window and not
+the removal of Fourier terms or context flags — which remain neutral, consistent with
+§4.4. **The corrected design was under-lagged**, and on GP that cost 18% RMSE.
+
+This tempers a claim made elsewhere in this paper and we flag it rather than let it
+stand. §5 reports that a learned model beats persistence by only 14% at one step, and
+reads the value of learning as concentrated at longer leads. With an adequate lag
+window that one-step margin is 29–35% on GP, not 14%. The lead-time argument is
+unaffected in *direction* — the naive forecaster still degrades far faster than the
+learned one — but the one-step regime is less unfavourable to learning than §5 states,
+and the multi-horizon, allocation and coverage studies all inherit the sparse window.
+Re-running them at depth 24 is the obvious next step and is not done here.
+
 ---
 
 ## 5. Lead time

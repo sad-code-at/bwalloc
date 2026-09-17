@@ -542,3 +542,91 @@ def test_native_quantile_ceiling_caps_the_expressible_cost_ratio():
 
     # And the levels this project reports on are exactly the ones that straddle it.
     assert optimal_tau(4.0) < ceiling < optimal_tau(19.0)
+
+
+# --------------------------------------------------------------------------- #
+# Sequence models: the original's architectures, on the corrected protocol
+# --------------------------------------------------------------------------- #
+
+def test_sequence_window_is_chronological():
+    """A sequence model's window must be ordered oldest observation first.
+
+    ``lagS_1`` is the most recent observation, so feeding the columns in natural
+    sort order hands a recurrent model time running backwards. It would still
+    train -- and score plausibly -- which is exactly why this needs a gate rather
+    than an eyeball.
+    """
+    from bwalloc.sequence import lookback_columns
+
+    X = pd.DataFrame({f"lagS_{n}": [0.0] for n in range(1, 6)})
+    assert lookback_columns(X) == [
+        "lagS_5", "lagS_4", "lagS_3", "lagS_2", "lagS_1"
+    ]
+
+
+def test_sequence_window_must_be_contiguous():
+    """A window with gaps is not a sequence, and must be refused rather than padded."""
+    from bwalloc.sequence import lookback_columns
+
+    with pytest.raises(ValueError, match="consecutive"):
+        lookback_columns(pd.DataFrame({"lagS_1": [0.0], "lagS_3": [0.0]}))
+    with pytest.raises(ValueError, match="No lagS"):
+        lookback_columns(pd.DataFrame({"lag_1.5h": [0.0]}))
+
+
+def test_sequence_standardisation_uses_the_fit_window_only():
+    """Scaling on test-block statistics is a second, subtler leak.
+
+    A sequence model that standardises using the block it is about to predict has
+    seen that block's mean and scale. The symptom is a model that tracks a level
+    shift it could not have known about, so this asserts predictions do not change
+    when the test block's location changes after fitting.
+    """
+    torch = pytest.importorskip("torch")
+    from bwalloc.sequence import SequenceForecaster
+
+    rng = np.random.default_rng(0)
+    X = pd.DataFrame(
+        rng.normal(100, 5, size=(120, 6)),
+        columns=[f"lagS_{n}" for n in range(1, 7)],
+    )
+    y = pd.Series(rng.normal(100, 5, size=120))
+
+    model = SequenceForecaster(kind="gru", lookback=6, epochs=2).fit(X, y)
+    before = model.predict(X.iloc[:20])
+    # Refit nothing; only ask about a shifted block. A fit-window scaler keeps its
+    # own statistics, so the shift must propagate rather than be normalised away.
+    shifted = model.predict(X.iloc[:20] + 50.0)
+    assert not np.allclose(before, shifted), (
+        "predictions are invariant to a level shift, which means the scaler was "
+        "refitted on the block being predicted"
+    )
+
+
+def test_sequence_models_are_deterministic():
+    """Same seed, same data, same predictions -- or no result here is reproducible."""
+    pytest.importorskip("torch")
+    from bwalloc.sequence import SequenceForecaster
+
+    rng = np.random.default_rng(1)
+    X = pd.DataFrame(
+        rng.normal(0, 1, size=(80, 4)), columns=[f"lagS_{n}" for n in range(1, 5)]
+    )
+    y = pd.Series(rng.normal(0, 1, size=80))
+
+    a = SequenceForecaster(kind="lstm", lookback=4, epochs=2, seed=7).fit(X, y)
+    b = SequenceForecaster(kind="lstm", lookback=4, epochs=2, seed=7).fit(X, y)
+    np.testing.assert_allclose(a.predict(X), b.predict(X), rtol=1e-6)
+
+
+def test_sequence_lookback_must_match_the_design_matrix():
+    """A silently truncated window would compare architectures at unequal information."""
+    pytest.importorskip("torch")
+    from bwalloc.sequence import SequenceForecaster
+
+    X = pd.DataFrame(
+        np.zeros((30, 4)), columns=[f"lagS_{n}" for n in range(1, 5)]
+    )
+    y = pd.Series(np.zeros(30))
+    with pytest.raises(ValueError, match="lookback=8"):
+        SequenceForecaster(kind="cnn", lookback=8, epochs=1).fit(X, y)
