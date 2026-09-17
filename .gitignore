@@ -13,3 +13,13 @@ experiments/results/*.log
 # OS
 Thumbs.db
 .DS_Store
+
+# LaTeX build artifacts (paper.pdf is tracked deliberately)
+paper/tex/*.aux
+paper/tex/*.log
+paper/tex/*.out
+paper/tex/*.bbl
+paper/tex/*.blg
+paper/tex/*.synctex.gz
+paper/tex/*.fls
+paper/tex/*.fdb_latexmk

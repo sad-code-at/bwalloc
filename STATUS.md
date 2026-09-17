@@ -552,10 +552,15 @@ Tables: `foundation_accuracy.csv`, `foundation_calibration.csv`. Figure:
 - **A per-group online calibration**, combining the context-conditional idea with ACI.
   This is the clearest open methodological question the work raises — see the ACI
   section above for why.
-- **The paper.** `paper/paper.md` is a complete draft — abstract, introduction,
-  all seven results sections, limitations and conclusion, every number sourced from
-  `experiments/results/`. What remains is related-work positioning (the citations are
-  listed at the end of the plan file) and converting it to the venue's LaTeX template.
+- ~~**The paper.**~~ **Done.** `paper/paper.md` is complete: abstract, introduction,
+  related work (§2, new), all seven results sections, limitations, conclusion and a
+  16-entry reference list. `paper/tex/paper.tex` is the IEEEtran conference build and
+  compiles clean (MiKTeX 24.1: 0 errors, 0 undefined refs, 0 missing figures, 0 overfull
+  boxes >20pt), producing a 9-page `paper.pdf`. **Three things remain before submission,
+  listed in `paper/tex/README.md`:** it is 9 pages against a typical 6-page limit, the
+  author block is a placeholder, and reference [1]'s author list is incomplete because
+  the publisher blocks automated access. The seven arXiv references were verified against
+  the arXiv API; the classical ones were not machine-checked.
 - Quantile-LSTM not implemented; `pinball_loss` implemented but never used in a
   reported table; LightGBM/sklearn `QuantileGBM` backends untested locally.
 

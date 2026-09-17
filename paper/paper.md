@@ -683,7 +683,7 @@ context-conditional results rest on an 89-row group and are directional only.
 
 Two limits are measured rather than asserted, and both are reported above: correcting
 the feature design does not improve accuracy (§4.4), and split-conformal coverage fails
-its ±2% target on these traces (§9). Absolute coverage guarantees should not be claimed
+its ±2% target on these traces (§10). Absolute coverage guarantees should not be claimed
 from the static conformal results; the context-conditional comparison is unaffected,
 being a relative comparison between methods calibrated on identical data.
 
