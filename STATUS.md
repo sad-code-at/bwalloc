@@ -607,7 +607,9 @@ still use the sparse four-lag design. Re-running them at depth 24 is the obvious
 step and would change the headline multi-horizon numbers. Decide before submitting.
 
 Tables: `sequence_{gp,robi}_{perfold,summary,dm}.csv`, `sequence_lag_depth.csv`.
-Gates: 5 new (52 total) — window chronology, contiguity, fit-window-only scaling,
+Notebook: `08_sequence_models.ipynb` — runs the four architectures live and
+reproduces the lag-depth ladder; committed executed.
+Gates: 5 new (52 total; 58 after the notebook-contract gates) — window chronology, contiguity, fit-window-only scaling,
 determinism, lookback/design-matrix agreement.
 
 ---
