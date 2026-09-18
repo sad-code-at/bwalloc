@@ -1,68 +1,43 @@
 # Running these notebooks on Google Colab
 
-The notebooks are written to run unchanged in Colab and locally. The one complication
-is that **this repository is private**, so Colab cannot clone it without a credential.
-That is what most of this page is about; once it is set up, opening a notebook is two
-clicks.
+The repository is public, so there is nothing to authenticate. Open a notebook and run
+the first cell.
 
-## The short version
+## Step by step
 
-1. Make a GitHub token with read access to this repository.
-2. Put it in Colab **Secrets** under the name `GH_TOKEN`.
-3. Open a notebook from the GitHub tab in Colab and run it.
+1. **File → Open notebook → GitHub**, paste
+   `https://github.com/sad-code-at/bwalloc`, pick a notebook from `notebooks/`.
+2. Run the first cell. It clones into `/content/bwalloc`, changes into it, and puts
+   `src/` on the path. On a re-run it pulls instead of cloning, so changes you have
+   pushed since arrive without restarting the session.
+3. That is all. Runtime → Run all.
 
-The first cell of every notebook finds the repository, clones it if it is not there,
-and puts `src/` on the path. Nothing else is needed.
+From a blank notebook, the same thing by hand:
 
----
+```python
+!git clone -q https://github.com/sad-code-at/bwalloc.git
+%cd bwalloc
+import sys; sys.path.insert(0, "src")
 
-## 1. Make a token
+import bwalloc as bw
+bw.set_seed()
+```
 
-On GitHub: **Settings → Developer settings → Personal access tokens → Fine-grained
-tokens → Generate new token**.
+## The loop: change something, see it here
 
-| Field | Value |
-|---|---|
-| Repository access | *Only select repositories* → `sad-code-at/bwalloc` |
-| Permissions | **Contents: Read-only** |
-| Expiration | 90 days is plenty for a semester |
+Push from your laptop, then **re-run the first cell** — it runs `git pull --ff-only`
+when the repository is already present.
 
-Read-only on one repository is the whole point: if the token leaks, it exposes nothing
-else and can write nothing. Copy it when shown — GitHub will not display it again.
+⚠️ **Restart the runtime after pulling if you changed anything under `src/`.** Python
+caches imported modules, so a pulled change will not take effect in a kernel that
+already imported it. *Runtime → Restart session*, then Run all. Or put
+`%load_ext autoreload` and `%autoreload 2` at the top of your session and skip the
+restart.
 
-## 2. Put it in Colab Secrets — not in a cell
-
-In Colab, click the **key icon** in the left sidebar, **Add new secret**:
-
-- Name: `GH_TOKEN`
-- Value: the token
-- Toggle **Notebook access** on for the notebook you are running
-
-**Do not paste the token into a code cell.** A token in a cell gets saved into the
-`.ipynb`, and if that notebook is ever committed or shared the token goes with it.
-Secrets are stored against your Google account and never appear in the file.
-
-## 3. Open a notebook
-
-**File → Open notebook → GitHub tab.** Sign in to GitHub when prompted and tick
-*Include private repos*. Pick `sad-code-at/bwalloc` and choose a notebook.
-
-If the GitHub tab will not show private repositories, the fallback is to download the
-`.ipynb` from GitHub and use **File → Upload notebook**. The bootstrap cell still
-clones the rest of the project, so the notebook works either way.
-
-## 4. Run it
-
-Run the first cell. It will:
-
-- look for the repository by walking up from the working directory (this is what
-  happens locally, and it finds nothing on a fresh Colab VM);
-- read `GH_TOKEN` from Colab Secrets and clone into `/content/bwalloc`;
-- `chdir` there and add `src/` to `sys.path`;
-- print the `bwalloc` version and the results directory.
-
-If the token is missing or wrong you get a plain message saying so rather than an
-import error forty lines later.
+**Pushing from Colab** needs a token with *Contents: Read and write*, stored in Secrets
+(the key icon) as `GH_TOKEN` and read with `google.colab.userdata.get("GH_TOKEN")` —
+never typed into a cell, because it would be saved into the `.ipynb`. Reading needs no
+token at all.
 
 ---
 
@@ -136,27 +111,7 @@ development locally and use Colab only to run things.
 
 ---
 
-## If you would rather not use a token
+---
 
-Two alternatives, both worse but both workable.
-
-**Mount Google Drive.** Upload the repository folder to Drive once, then:
-
-```python
-from google.colab import drive
-drive.mount('/content/drive')
-%cd /content/drive/MyDrive/bwalloc
-```
-
-The bootstrap then finds the repository by walking up and never tries to clone. The
-cost is that Drive is slow for many small files, and you must re-upload by hand to get
-changes.
-
-**Use Kaggle instead.** Kaggle offers a route that needs no token *and* no internet:
-upload the repository as a private Kaggle Dataset and it mounts read-only under
-`/kaggle/input`, where the bootstrap finds it. See [`KAGGLE.md`](KAGGLE.md).
-
-Making the repository public would also remove the need for a credential, but it is
-not recommended and is not necessary: the repository holds the two operator traces,
-which were inherited rather than collected, and an unpublished paper draft. Publishing
-is effectively irreversible.
+For Kaggle, see [`KAGGLE.md`](KAGGLE.md) — same shape, but Internet must be switched on
+in the notebook settings first.

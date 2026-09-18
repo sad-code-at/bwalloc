@@ -1,68 +1,120 @@
 # Running these notebooks on Kaggle
 
-Kaggle works the same way Colab does, with two differences worth knowing before you
-start: **Internet is off by default** and must be switched on, and secrets live under
-**Add-ons → Secrets** rather than a sidebar icon.
+The repository is public, so there is nothing to authenticate for reading. Getting a
+notebook running is four steps, and re-running it after you push a change is one.
 
-You do **not** need to make this repository public. Kaggle can clone a private repo with
-a token, and there is a second route (upload it as a private Kaggle Dataset) that needs
-no token and no internet at all.
+## Step by step
 
-## Route A — clone with a token (recommended)
+### 1. Create the notebook
 
-### 1. Make a token
+Kaggle → **Create → New Notebook**. Or, to start from one of ours:
+**File → Import Notebook → GitHub**, paste
+`https://github.com/sad-code-at/bwalloc`, and pick a notebook from `notebooks/`.
 
-GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained tokens**:
+### 2. Switch Internet on
 
-| Field | Value |
-|---|---|
-| Repository access | *Only select repositories* → `sad-code-at/bwalloc` |
-| Permissions | **Contents: Read-only** |
-| Expiration | 90 days |
+Right-hand sidebar → **Settings → Internet → On**.
 
-Read-only on one repository means a leak exposes nothing else and can write nothing.
+This is the step people miss. Without it the clone cannot reach GitHub and the first
+cell stops with a message saying so. Kaggle requires a phone-verified account to enable
+internet; if you cannot, see [No internet?](#no-internet) below.
 
-### 2. Add it to Kaggle Secrets
+### 3. Leave the accelerator on None
 
-In a Kaggle notebook: **Add-ons → Secrets → Add a new secret**.
+Right-hand sidebar → **Settings → Accelerator → None**.
 
-- Label: `GH_TOKEN`
-- Value: the token
-- Attach it to the notebook (the toggle beside it)
+Nothing here benefits from a GPU. The heaviest step is scikit-learn's random forest,
+which is CPU-bound, and the sequence models in notebook 08 are small. A GPU session only
+spends your weekly quota.
 
-**Do not paste the token into a cell.** Kaggle notebooks are versioned and can be made
-public later; a token in a cell travels with the file.
+### 4. Run the first cell
 
-### 3. Switch Internet on
+If you imported one of our notebooks, just run it — the bootstrap does everything. If
+you started a blank notebook, paste this:
 
-Right-hand sidebar → **Settings → Internet → On**. Kaggle requires a phone-verified
-account for this. Without it the clone cannot reach GitHub, and the bootstrap will say
-so.
+```python
+!git clone -q https://github.com/sad-code-at/bwalloc.git /kaggle/working/bwalloc
+%cd /kaggle/working/bwalloc
+import sys; sys.path.insert(0, "src")
 
-### 4. Run
+import bwalloc as bw
+bw.set_seed()
+print(bw.__version__)
+```
 
-Open a notebook and run the first cell. It detects Kaggle, reads `GH_TOKEN` from
-`kaggle_secrets`, clones into `/kaggle/working/bwalloc`, changes into it and puts `src/`
-on the path.
+Then run whatever you like. Everything is importable from `bwalloc`, and the stored
+results are under `experiments/results/`.
 
-To get the notebooks themselves onto Kaggle: **File → Import Notebook → GitHub** (sign
-in, tick private repos), or download the `.ipynb` from GitHub and use **File → Import
-Notebook → File**. Either works; the bootstrap fetches the rest of the project.
+---
 
-## Route B — upload as a private Kaggle Dataset (no token, no internet)
+## The loop: change something, see it on Kaggle
 
-Useful if you cannot phone-verify, or if you want the notebooks to run with Internet
-off, which is faster to start and works under Kaggle's offline competition rules.
+This is the workflow you asked about.
 
-1. Download the repository as a ZIP from GitHub (**Code → Download ZIP**).
-2. Kaggle → **Datasets → New Dataset** → upload the ZIP → set visibility **Private**.
-3. In your notebook: **Add Data → Your Datasets →** the one you just made.
+**On your laptop** — edit, then push:
 
-It mounts read-only at `/kaggle/input/<dataset-name>/`. The bootstrap looks there before
-attempting any clone, so it is picked up automatically with no further changes.
+```bash
+cd "D:/L4-T-1/EEE 402/project/bwalloc"
+git add -A
+git commit -m "what changed and why"
+git push
+```
 
-The trade-off: it is a snapshot. When the repository changes you must re-upload, which
-is why Route A is the better default if you can use it.
+**On Kaggle** — re-run the first cell. That is all.
+
+The bootstrap checks whether the repository is already in `/kaggle/working/bwalloc`. If
+it is, it runs `git pull --ff-only` instead of cloning again, so your pushed changes
+arrive and it prints `pulled latest into /kaggle/working/bwalloc`. If the session has
+been restarted and the directory is gone, it clones fresh. Either way the first cell is
+the only thing you touch.
+
+If you are not using one of our notebooks, the same thing by hand:
+
+```python
+!git -C /kaggle/working/bwalloc pull --ff-only
+```
+
+⚠️ **Restart the kernel after pulling if you changed anything under `src/`.** Python
+caches imported modules, so a pulled change to `bwalloc/*.py` will not take effect in a
+kernel that already imported it. **Run → Restart & Clear Cell Outputs**, then run all.
+This is the single most common cause of "I pulled but it still does the old thing".
+
+Or avoid the restart entirely by putting this at the top of your session:
+
+```python
+%load_ext autoreload
+%autoreload 2
+```
+
+### Pushing *from* Kaggle
+
+Reading is anonymous; writing is not. To push from a Kaggle notebook you need a token
+with **Contents: Read and write** on the repository — note that is a wider permission
+than reading needs, so prefer editing locally where you can.
+
+1. GitHub → Settings → Developer settings → Personal access tokens → **Fine-grained
+   tokens**. Repository access: only `sad-code-at/bwalloc`. Permissions:
+   **Contents: Read and write**.
+2. Kaggle → **Add-ons → Secrets** → new secret named `GH_TOKEN`, attached to the
+   notebook.
+3. In a cell:
+
+```python
+from kaggle_secrets import UserSecretsClient
+tok = UserSecretsClient().get_secret("GH_TOKEN")
+
+!git -C /kaggle/working/bwalloc config user.email "2106110@eee.buet.ac.bd"
+!git -C /kaggle/working/bwalloc config user.name "your name"
+!git -C /kaggle/working/bwalloc add -A
+!git -C /kaggle/working/bwalloc commit -m "from kaggle"
+!git -C /kaggle/working/bwalloc push https://{tok}@github.com/sad-code-at/bwalloc.git main
+```
+
+**Never type the token into a cell literally** — read it from Secrets as above. A token
+written into an `.ipynb` is saved with the notebook, and Kaggle notebooks can be shared
+or made public later.
+
+---
 
 ## What Kaggle already has
 
@@ -70,17 +122,11 @@ Kaggle's Python image ships `numpy`, `pandas`, `matplotlib`, `scikit-learn`, `sc
 `statsmodels`, `xgboost`, `lightgbm` and `torch`. That covers notebooks 00–05, 07 and 08
 with nothing to install.
 
-Only **notebook 06 (zero-shot foundation models)** needs an extra package, and this one
-does require Internet on:
+Only **notebook 06 (zero-shot foundation models)** needs an extra package:
 
 ```python
 !pip install -q chronos-forecasting
 ```
-
-**No GPU is needed.** Leave the accelerator on *None*. The heaviest step is
-scikit-learn's random forest, which is CPU-bound and gains nothing from a GPU, and the
-sequence models in notebook 08 are small enough to finish in a couple of minutes on CPU.
-A GPU session only burns your weekly quota.
 
 ## Runtimes
 
@@ -96,39 +142,16 @@ A GPU session only burns your weekly quota.
 | `07_paper_figures` | Regenerates every paper figure from stored results | seconds |
 | `08_sequence_models` | CNN / RNN / LSTM / GRU against the trees; lag depth | ~4 min |
 
-All nine together are well inside Kaggle's 12-hour session limit. `04_multi_horizon` is
+All nine together sit well inside Kaggle's 12-hour session limit. `04_multi_horizon` is
 the only one long enough to be worth starting and leaving.
 
-Note that every notebook is committed **with its outputs**, so you can read all of them
-on GitHub without running anything.
+Every notebook is committed **with its outputs**, so you can read all of them on GitHub
+without running anything.
 
-## Things that go wrong
+## Keeping results after the session ends
 
-**`Could not find the repository and no GH_TOKEN is available.`**
-The secret is not attached to this notebook, or it is named something other than
-`GH_TOKEN`. Check Add-ons → Secrets and the toggle beside the entry.
-
-**`git clone failed.`**
-Usually Internet is still off — check Settings in the right sidebar. Otherwise the token
-is expired or lacks *Contents: Read* on this repository.
-
-**Everything vanished when I came back.**
-`/kaggle/working` persists only while the session lives. Re-running the first cell
-re-clones. Nothing is lost, because all results and figures regenerate from the
-repository.
-
-**Edits I made are gone.**
-Changes inside `/kaggle/working/bwalloc` disappear with the session. Develop locally and
-use Kaggle to run, or commit and push from Kaggle using the same token.
-
-**A cell fails with an error that should already be fixed.**
-Kaggle keeps the kernel between runs. **Run → Restart & Clear Cell Outputs**, then run
-all. This is the most common cause of "I fixed it but it still fails".
-
-## Saving results off the session
-
-Anything written to `/kaggle/working` is captured when you **Save Version**, and appears
-under the notebook's Output tab afterwards. So to keep a figure or a table:
+`/kaggle/working` is captured when you **Save Version**, and appears under the
+notebook's Output tab. So to keep figures:
 
 ```python
 import shutil
@@ -136,9 +159,41 @@ shutil.copytree(ROOT / "notebooks" / "figures", "/kaggle/working/figures",
                 dirs_exist_ok=True)
 ```
 
-Then Save Version, and download from the Output tab.
+Then Save Version and download from Output. Anything *not* copied into
+`/kaggle/working` disappears with the session — including edits made to the cloned
+repository, which is why the loop above goes laptop → GitHub → Kaggle rather than the
+other way.
+
+<a name="no-internet"></a>
+## No internet?
+
+If you cannot phone-verify, upload the repository as a Kaggle Dataset instead:
+
+1. GitHub → **Code → Download ZIP**.
+2. Kaggle → **Datasets → New Dataset** → upload the ZIP.
+3. In the notebook: **Add Data →** your dataset.
+
+It mounts read-only under `/kaggle/input/…`, and the bootstrap looks there before trying
+to clone, so it is found automatically. The trade-off is that it is a snapshot: to pick
+up changes you must re-upload, which is exactly what the pull workflow avoids.
+
+## Things that go wrong
+
+**`git clone failed.`** Internet is off. Right sidebar → Settings → Internet → On.
+
+**I pulled but the old behaviour is still there.** The kernel cached the modules.
+Restart it, or use `%autoreload 2`.
+
+**`git pull` refuses with a conflict.** You edited files inside `/kaggle/working/bwalloc`
+and those edits clash with what you pushed. Since Kaggle edits are disposable, the fix
+is usually `!git -C /kaggle/working/bwalloc reset --hard origin/main`, which **discards
+local changes** — check you do not want them first.
+
+**Everything vanished.** `/kaggle/working` does not survive a session ending. Re-running
+the first cell clones again; nothing is lost, because results and figures regenerate
+from the repository.
 
 ---
 
-For Colab, see [`COLAB.md`](COLAB.md) — the setup is the same shape, with Secrets behind
-the key icon instead.
+For Colab, see [`COLAB.md`](COLAB.md) — same shape, `/content/bwalloc` instead of
+`/kaggle/working/bwalloc`.

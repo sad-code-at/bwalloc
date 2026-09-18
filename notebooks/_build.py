@@ -20,17 +20,16 @@ HERE = Path(__file__).resolve().parent
 
 BOOTSTRAP = '''\
 # --- Bootstrap: works locally, on Colab and on Kaggle ----------------------
-# Locally this just finds the repository root. On a hosted runtime the repo is not
-# on the machine yet, so it is cloned first. The repository is PRIVATE, so the
-# clone needs a GitHub token with Contents:Read on it. Put one in:
-#   Colab   -- Secrets, the key icon in the left sidebar, named GH_TOKEN
-#   Kaggle  -- Add-ons > Secrets, named GH_TOKEN (and switch Internet on)
-# See docs/COLAB.md and docs/KAGGLE.md.
+# Locally this finds the repository root and changes nothing. On a hosted runtime it
+# clones the repository, and on a re-run it PULLS, so changes pushed since the last
+# run are picked up without restarting the session.
+# The repository is public, so no token is needed to read it. Pushing from a notebook
+# still needs one -- see docs/KAGGLE.md.
 import os, sys, warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
-REPO = "github.com/sad-code-at/bwalloc.git"
+REPO = "https://github.com/sad-code-at/bwalloc.git"
 
 def _find_root(start: Path):
     node = start
@@ -38,23 +37,10 @@ def _find_root(start: Path):
         node = node.parent
     return node if (node / "src" / "bwalloc").exists() else None
 
-def _token():
-    try:                                   # Colab
-        from google.colab import userdata
-        return userdata.get("GH_TOKEN")
-    except Exception:
-        pass
-    try:                                   # Kaggle
-        from kaggle_secrets import UserSecretsClient
-        return UserSecretsClient().get_secret("GH_TOKEN")
-    except Exception:
-        pass
-    return os.environ.get("GH_TOKEN")      # anything else
-
 ROOT = _find_root(Path.cwd())
 
 if ROOT is None:
-    # Kaggle mounts read-only copies under /kaggle/input; prefer one if present.
+    # A repo uploaded as a Kaggle Dataset mounts read-only here; prefer it if present.
     for candidate in Path("/kaggle/input").glob("*/src/bwalloc"):
         ROOT = candidate.parent.parent
         break
@@ -63,23 +49,17 @@ if ROOT is None:
     on_kaggle = Path("/kaggle/working").exists()
     target = Path("/kaggle/working/bwalloc") if on_kaggle else Path("/content/bwalloc")
     if _find_root(target) is None:
-        tok = _token()
-        if not tok:
-            raise SystemExit(
-                "Could not find the repository and no GH_TOKEN is available. "
-                "Colab: add it under Secrets (the key icon). "
-                "Kaggle: Add-ons > Secrets, and switch Internet on. "
-                "See docs/COLAB.md or docs/KAGGLE.md. "
-                "Locally: run this notebook from inside the repository."
-            )
-        # Quiet, and stderr discarded, so the token never reaches the output.
-        rc = os.system("git clone -q https://" + tok + "@" + REPO + " " + str(target) + " 2>/dev/null")
+        rc = os.system("git clone -q " + REPO + " " + str(target))
         if rc != 0 or _find_root(target) is None:
             raise SystemExit(
-                "git clone failed. Check that GH_TOKEN is valid, unexpired, and "
-                "grants Contents:Read on this repository. On Kaggle also check "
-                "that Internet is enabled in the notebook settings."
+                "git clone failed. On Kaggle, switch Internet on in the notebook "
+                "settings (right sidebar). See docs/KAGGLE.md."
             )
+        print("cloned " + REPO)
+    else:
+        # Already here from an earlier cell or an earlier run in this session: pull.
+        os.system("git -C " + str(target) + " pull -q --ff-only")
+        print("pulled latest into " + str(target))
     os.chdir(target)
     ROOT = target
 

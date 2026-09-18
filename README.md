@@ -255,28 +255,26 @@ supplies the service-level guarantee it cannot.
 
 ### Colab and Kaggle
 
-Open any notebook in `notebooks/` and run the first cell — it finds the repository,
-clones it if needed, and puts `src/` on the path.
+The repository is public, so no credentials are needed. Open any notebook in
+`notebooks/` and run the first cell — it clones the repo, or pulls if it is already
+there, and puts `src/` on the path.
 
-Because **this repository is private**, the clone needs a credential. Put a GitHub
-token with *Contents: Read* on this repo into Colab **Secrets** (the key icon in the
-sidebar) under the name `GH_TOKEN`, with notebook access enabled. Never paste the token
-into a cell — it would be saved into the `.ipynb`.
+- **Colab** — File → Open notebook → GitHub → `https://github.com/sad-code-at/bwalloc`.
+- **Kaggle** — File → Import Notebook → GitHub, and switch **Internet on** in Settings.
 
-Colab already ships everything notebooks 00–05, 07 and 08 need. Only notebook 06 wants
-an extra install:
+After pushing a change from your laptop, re-run that first cell to pull it; restart the
+kernel too if you changed anything under `src/`.
+
+Colab and Kaggle both ship everything notebooks 00–05, 07 and 08 need. Only notebook 06
+wants an extra install:
 
 ```python
 !pip install -q chronos-forecasting
 ```
 
-**Kaggle** works the same way, with two differences: Internet must be switched on in the
-notebook settings, and the secret lives under *Add-ons → Secrets*. Kaggle also offers a
-no-token route — upload the repo as a private Kaggle Dataset and it mounts read-only
-under `/kaggle/input`, which the bootstrap finds automatically.
-
-Nothing here needs a GPU on either platform. Full instructions and the common failure
-modes are in [`docs/COLAB.md`](docs/COLAB.md) and [`docs/KAGGLE.md`](docs/KAGGLE.md).
+Nothing here needs a GPU on either platform. Full walkthroughs, the push-from-notebook
+recipe and the common failure modes are in [`docs/COLAB.md`](docs/COLAB.md) and
+[`docs/KAGGLE.md`](docs/KAGGLE.md).
 
 ### Local
 
