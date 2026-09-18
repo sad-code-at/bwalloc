@@ -1019,13 +1019,19 @@ def test_sampled_configurations_build_a_model_and_a_design_matrix(trace):
 
     name, df, profile = trace
     rng = np.random.default_rng(0)
-    for model_name in ("ridge", "random_forest", "dlinear", "tcn"):
+    # EVERY model, not a sample of them. A search space carrying a key its model does
+    # not accept fails silently: random_search records the TypeError per trial, the
+    # run prints "every trial failed", and that model quietly drops out of the
+    # comparison. That is exactly what `dropout` did to the four covariate sequence
+    # models, and it is why this loop covers the whole registry.
+    for model_name in SEARCH_SPACES:
         space = {**FEATURE_SPACE, **SEARCH_SPACES[model_name]}
         params = sample_params(space, rng)
+        params.setdefault("covariates", False)
         config = feature_config_for(params)
         assert config.lag_samples == tuple(range(1, params["lookback"] + 1))
         if params["covariates"]:
             assert config.covariate_lag_samples == config.lag_samples
         else:
             assert config.covariate_lag_samples == ()
-        assert build_model(model_name, params) is not None
+        assert build_model(model_name, params) is not None, model_name

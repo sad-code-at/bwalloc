@@ -389,12 +389,18 @@ def channel_window(X: pd.DataFrame, lookback: int | None = None) -> ChannelWindo
     )
 
 
-def _build_covariate_module(kind: str, lookback: int, n_channels: int, n_static: int):
+def _build_covariate_module(kind: str, lookback: int, n_channels: int, n_static: int,
+                            dropout: float = 0.0):
     """The same four architectures, widened to read covariate channels.
 
     The trunk is unchanged apart from its input width; the static block is concatenated
     with the trunk's output before the dense head, which is how DeepAR admits covariates
     alongside a recurrent state.
+
+    ``dropout`` is applied to the trunk's output. The original study used none, so it
+    defaults to zero and the reproduction is unaffected -- but with ~350 training rows
+    per fold and up to sixteen input channels, regularisation is a knob worth having in
+    the search space rather than one fixed by inheritance.
     """
     import torch
     import torch.nn as nn
@@ -424,6 +430,7 @@ def _build_covariate_module(kind: str, lookback: int, n_channels: int, n_static:
                 raise ValueError(
                     f"Unknown architecture {kind!r}; expected one of {ARCHITECTURES}."
                 )
+            self.drop = nn.Dropout(dropout) if dropout else None
             self.out = nn.Linear(trunk_out + n_static, 1)
 
         def forward(self, window, static):
@@ -432,6 +439,8 @@ def _build_covariate_module(kind: str, lookback: int, n_channels: int, n_static:
                 features = h[:, -1, :]
             else:
                 features = self.trunk(window.transpose(1, 2))
+            if self.drop is not None:
+                features = self.drop(features)
             if static.shape[1]:
                 features = torch.cat([features, static], dim=1)
             return self.out(features)
@@ -467,6 +476,10 @@ class CovariateSequenceForecaster(Forecaster):
     epochs: int = 30
     batch_size: int = 32
     lr: float = 1e-3
+    #: Both default to the original study's setting (none), so the architectures are
+    #: reproduced unchanged; they exist because bwalloc.tuning searches them.
+    dropout: float = 0.0
+    weight_decay: float = 0.0
     seed: int = 42
     name: str = ""
 
@@ -513,7 +526,8 @@ class CovariateSequenceForecaster(Forecaster):
 
         torch.manual_seed(self.seed)
         self._module = _build_covariate_module(
-            self.kind, self._spec.lookback, self._spec.n_channels, len(self._spec.static)
+            self.kind, self._spec.lookback, self._spec.n_channels,
+            len(self._spec.static), self.dropout,
         )
 
         wn, sn = self._tensors(X)
@@ -521,7 +535,9 @@ class CovariateSequenceForecaster(Forecaster):
         st = torch.tensor(sn, dtype=torch.float32)
         yt = torch.tensor((ys - self._y_mu) / self._y_sd, dtype=torch.float32)
 
-        opt = torch.optim.Adam(self._module.parameters(), lr=self.lr)
+        opt = torch.optim.Adam(
+            self._module.parameters(), lr=self.lr, weight_decay=self.weight_decay
+        )
         loss_fn = torch.nn.MSELoss()
         n = len(wt)
         generator = torch.Generator().manual_seed(self.seed)

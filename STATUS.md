@@ -806,9 +806,80 @@ operator with the strong daily cycle is the one whose attention finds it. It als
 short-run smoothing, not a daily echo. That is a more specific claim than notebook 08
 could make.
 
-### Still to fill in
+### Tuning: 23 of 26 improved — but most of it was not tuning
 
-`run_model_comparison.py`, once the tuning search lands. **Everything in this section is one-step-ahead**:
+`run_tuning.py`, 30 trials per (model, operator), selection confined to the development
+prefix. 23 of 26 improved, 19 significantly at 0.05, and **`covariates=False` was
+selected in 20 of 26**.
+
+That last number is the point. Nothing coordinated the search with the arm study, and it
+arrived at the same answer.
+
+**Then `run_model_comparison.py` scored three variants per model** — defaults *with*
+covariate channels, the same defaults *without*, and the tuned configuration — because
+`run_tuning.py`'s comparator carried `covariates=True` and would otherwise have credited
+the hyperparameter search for a result belonging to the feature set. Separating them
+changes the story:
+
+**GP**
+
+| model | default + cov. | cov. off | tuned | covariate cost | **tuning gain** |
+|---|---|---|---|---|---|
+| **tcn** | 11.127 | **7.474** | 8.171 | 32.8% | **−9.3%** |
+| cnn_cov | 14.311 | 8.019 | 8.279 | 44.0% | **−3.2%** |
+| dlinear | 14.963 | 8.945 | 9.671 | 40.2% | **−8.1%** |
+| nbeats | 7.833 | 7.833 | 7.883 | 0% | −0.6% |
+| random_forest | 8.651 | 8.651 | 8.744 | 0% | −1.1% |
+| gru_cov | 10.643 | 9.634 | 8.329 | 9.5% | +13.6% |
+| nbeatsx | 9.949 | 9.078 | 8.080 | 8.8% | +11.0% |
+
+**For the strongest GP models essentially all of the apparent gain was the covariate
+switch, and the hyperparameter search on top of it made them worse.** The TCN's headline
+"+26.6% from tuning" is really 32.8% from dropping covariates minus 9.3% lost to a search
+that overfitted its inner split. Do not quote `tuning_gain.csv` without this split;
+`comparison_*_effects.csv` is the table that separates the two.
+
+**Robi behaves differently, and the difference is informative.** There the trees *did*
+gain from tuning — random_forest +5.2% (p=0.028), xgboost +5.2%, ridge +4.8% (p=0.021) —
+and every one chose a **deeper** window than the 24 this project had standardised on
+(36, 36, 48). Covariate costs are real but smaller (tcn 22.3%, cnn_cov 22.5%).
+
+### The final field
+
+| | GP | Robi |
+|---|---|---|
+| leader | **`tcn__default` 7.474** | `random_forest__tuned` 19.467 |
+| DM wins surviving BH | **41 of 44** | 23 of 44, **21 ties** |
+| persistence | 12.164 | 29.864 |
+| improvement over persistence | 38.6% | 34.8% |
+
+**GP's leader is an untuned model on the plain dense feature set**, and it beats
+everything else decisively. **Robi's leader is inside a 21-way tie** — `xgboost__tuned`
+19.700, `tcn__default` 19.879 and `lstm_cov__default` 19.942 are not distinguishable from
+it, which is the normal outcome at ~90 test points per block and is reported as such
+rather than ranked on point estimates.
+
+### What this round established
+
+1. **The covariates do not help.** Four independent lines agree: the five-arm study, the
+   permutation importance (demand outweighs the best covariate 30x on GP), 20 of 26
+   tuning searches, and the `nbeats` control whose covariate cost is exactly zero because
+   it cannot read them.
+2. **The TCN is the best architecture tried**, and it is the only headline finding in
+   this project that replicates on both operators.
+3. **Tuning is worth little here, and on GP it is worth less than nothing.** Separating
+   the covariate effect from the search effect is what makes that visible.
+4. **Robi wants a deeper window than 24.** Every tuned Robi tree chose 36-48. That is the
+   one clear actionable change to carry into the other studies.
+
+### Still to do
+
+- **Carry this into the multi-horizon, allocation and coverage studies.**
+  `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still use the sparse
+  four-lag design and **everything above is one-step-ahead**. Notebook 04 showed the
+  value of learning is far larger at a realistic lead time than at one step, so the TCN
+  and the deeper Robi window should be tested there before any of this reaches the paper.
+- **The paper is untouched this round**, as asked. **Everything in this section is one-step-ahead**:
 `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still use the sparse
 four-lag design and are unaffected by any of it.
 

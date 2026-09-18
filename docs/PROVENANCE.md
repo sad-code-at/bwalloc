@@ -119,6 +119,9 @@ sources for lifting it.
 | Covariate taxonomy — past covariates, known-future covariates and static covariates are different things and enter a forecaster differently. This is why exogenous features enter as *windowed channels* over the lookback rather than one flat vector, and why the target timestamp's Fourier terms are legitimately available at forecast time | `features.FeatureConfig.covariate_lag_samples`, `sequence.channel_window`, notebook 09 | Lim, Arik, Loeff & Pfister, *Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting*, arXiv:1912.09363, 2019; Int. J. Forecasting 37(4):1748–1764, 2021 | verified 2026-09-18 (arXiv) |
 | Feeding covariates alongside an autoregressive sequence model, concatenated with the recurrent state | `sequence.CovariateSequenceForecaster` | Salinas, Flunkert & Gasthaus, *DeepAR*, arXiv:1704.04110, 2017; extended version with Januschowski in Int. J. Forecasting 36(3):1181–1191, 2020 | verified 2026-09-18 (arXiv lists three authors; the journal version adds Januschowski) |
 | Permutation importance as the measure of what each input channel is worth | `run_architectures.py`, `arch_channel_importance_*.csv` | Breiman, *Random Forests*, Machine Learning 45(1):5–32, 2001 | standard |
+| **That hand-labelled context and Fourier covariates, given a full lookback history, make every model *worse* on both traces** — GP cnn 7.875 → 14.311, random forest 8.651 → 9.014; Robi the same direction. A capacity result, not a wiring fault: the gates prove the channels are consumed | `features_arm_matrix.csv`, notebook 09 | — | **ours** (a negative result) |
+| **That demand outweighs the best covariate channel by 30× on GP and 6.5× on Robi**, with context flags worth ≈0.05 RMSE — the measurement behind that negative result | `arch_channel_importance_*.csv` | — | **ours** |
+| **That a model architecturally unable to read covariates (`nbeats`) is the one model whose covariate cost is exactly zero** — an unplanned internal control for the above | `arch_{gp,robi}_arms.csv` | — | **ours** |
 
 ### 7c. Modern architectures
 
@@ -153,6 +156,9 @@ picked by hand. A ranking of untuned models ranks whose defaults happen to suit 
 | TPE / Optuna — **the alternative not taken**, recorded so the choice is defensible: adding it would break the zero-install property `docs/KAGGLE.md` promises, and 30-trial seeded random search needs no dependency | `tuning.py` design note | Akiba, Sano, Yanase, Ohta & Koyama, *Optuna: A Next-generation Hyperparameter Optimization Framework*, arXiv:1907.10902, 2019; KDD 2019 | verified 2026-09-18 |
 | Model selection must happen on data the test folds never touch; for a time series that means an inner split that respects temporal order | `tuning.development_prefix`, gate `test_tuning_prefix_ends_before_the_first_test_block` | Bergmeir & Benítez, Information Sciences 191:192–213, 2012 (already cited in §3); Tashman 2000 | standard |
 | **That the feature set itself belongs in the search space** — `covariates on/off`, `context_flags all/is_rain/none` and `lookback` are tuned alongside learning rate, so the question "do the covariates earn anything?" is settled by measurement rather than by the default | `tuning.SEARCH_SPACES` | — | **ours** (a protocol decision) |
+| **That a tuning result must separate the feature-set effect from the hyperparameter effect, or it credits the search for the wrong thing.** Scoring three variants (defaults with covariates, defaults without, tuned) shows the TCN's apparent "+26.6% from tuning" is 32.8% from dropping covariates *minus* 9.3% lost to a search that overfitted its inner split | `comparison_*_effects.csv`, notebooks 11–12 | — | **ours** (a reporting standard) |
+| **That 20 of 26 independent searches selected `covariates=False`**, corroborating the arm study with nothing coordinating the two | `tuning_gain.csv` | — | **ours** |
+| **That on GP hyperparameter tuning is worth less than nothing** (random forest −1.1%, xgboost −0.2%, TCN −9.3% on held-out folds) while on Robi the trees gain 5% and every tuned Robi tree selects a window of 36–48 rather than 24 | `comparison_*_effects.csv` | — | **ours** |
 
 ---
 
@@ -177,6 +183,16 @@ viva question about contribution should be answered with:
 8. **Three negative results reported rather than buried**: correcting the features does
    not improve RMSE; capacity-at-equal-SLA is not a well-posed comparison; static
    conformal coverage fails its ±2% target almost everywhere.
+9. **That covariate history makes every model worse on both traces**, established four
+   independent ways — the five-arm study, permutation importance, 20 of 26 tuning
+   searches, and an architecture that cannot read covariates having exactly zero
+   covariate cost.
+10. **That the TCN beats every other architecture tried on both operators** (GP 7.474,
+    41 of 44 Diebold-Mariano wins surviving BH correction; Robi 19.879) — the only
+    headline result in this project that replicates across operators.
+11. **That a tuning report must separate the feature-set effect from the search effect**,
+    because on GP the search's apparent gains were entirely the former and the latter was
+    negative.
 
 ## What we borrowed without modification
 
@@ -186,6 +202,6 @@ the paper does not imply otherwise.
 
 ---
 
-*Last updated 2026-09-18 (architectures, covariates and tuning added). Published performance figures are collected separately in [`BENCHMARKS.md`](BENCHMARKS.md). arXiv entries verified against the arXiv API on the dates
+*Last updated 2026-09-19 (architectures, covariates and tuning; results recorded). Published performance figures are collected separately in [`BENCHMARKS.md`](BENCHMARKS.md). arXiv entries verified against the arXiv API on the dates
 shown. Entries marked "standard" are classical references stated from bibliographic
 knowledge and should be spot-checked against the originals before submission.*

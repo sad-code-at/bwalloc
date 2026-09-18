@@ -6,7 +6,8 @@ what the architecture is worth, ``run_tuning.py`` what tuning is worth. This one
 the survivors in a single table so the comparison is like-for-like, which is the
 standard the corrected protocol has held since notebook 01.
 
-Each model appears twice: at its defaults, and at the configuration
+Each model appears three times: at its defaults with covariate channels, at the
+same defaults without them, and at the configuration
 ``run_tuning.py`` selected on the development prefix. Both are scored on the same eight
 rolling-origin folds, against the same baselines, with the same Diebold-Mariano
 machinery and Benjamini-Hochberg correction over the whole field.
@@ -44,6 +45,22 @@ from bwalloc.tuning import build_model, feature_config_for, load_best  # noqa: E
 
 sys.path.insert(0, str(ROOT / "experiments"))
 from run_tuning import DEFAULTS  # noqa: E402
+
+
+def without_covariates(params: dict) -> dict:
+    """The same defaults with the covariate channels switched off.
+
+    This matters for honesty about what tuning bought. ``run_tuning.DEFAULTS`` mostly
+    carries ``covariates=True``, because that was the configuration this round set out
+    to test -- so a headline like "tuning improved the CNN by 42%" would be mostly
+    reporting that the search turned off covariate channels we had *separately* shown
+    are harmful on both traces.
+
+    Scoring both defaults separates the two effects: ``default_cov`` -> ``default``
+    is what dropping the covariates is worth, and ``default`` -> ``tuned`` is what the
+    hyperparameter search is worth on top of that.
+    """
+    return {**params, "covariates": False}
 
 RESULTS = ROOT / "experiments" / "results"
 N_FOLDS = 8
@@ -106,7 +123,12 @@ def main() -> None:
         frames, preds = [base_fold], [base_pred]
         started = time.time()
         for name, params in tuned.items():
-            for label, config in (("default", DEFAULTS[name]), ("tuned", params)):
+            variants = (
+                ("default_cov", DEFAULTS[name]),
+                ("default", without_covariates(DEFAULTS[name])),
+                ("tuned", params),
+            )
+            for label, config in variants:
                 per_fold, predictions = score(name, config, label, df, profile)
                 frames.append(per_fold)
                 preds.append(predictions)
@@ -127,6 +149,18 @@ def main() -> None:
 
         dm = dm_matrix(predictions, horizon=1)
         dm.to_csv(RESULTS / f"comparison_{operator}_dm.csv", index=False)
+
+        # Separate the two effects rather than letting one stand in for the other.
+        split = (per_fold[per_fold["variant"] != "baseline"]
+                 .groupby(["base_model", "variant"], as_index=False)["rmse"].mean()
+                 .pivot(index="base_model", columns="variant", values="rmse"))
+        split["covariates_cost"] = (
+            (split["default_cov"] - split["default"]) / split["default_cov"])
+        split["tuning_gain"] = (split["default"] - split["tuned"]) / split["default"]
+        split.to_csv(RESULTS / f"comparison_{operator}_effects.csv")
+        print("\n  Where the improvement came from "
+              "(covariates off, then hyperparameters):")
+        print(split.sort_values("tuned").round(4).to_string())
 
         leader = summary["model"].iloc[0]
         pairs = dm[(dm["model_a"] == leader) | (dm["model_b"] == leader)]
