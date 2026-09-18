@@ -20,12 +20,14 @@ HERE = Path(__file__).resolve().parent
 
 BOOTSTRAP = '''\
 # --- Bootstrap: works locally, on Colab and on Kaggle ----------------------
-# Locally this finds the repository root and changes nothing. On a hosted runtime it
-# clones the repository, and on a re-run it PULLS, so changes pushed since the last
-# run are picked up without restarting the session.
-# The repository is public, so no token is needed to read it. Pushing from a notebook
-# still needs one -- see docs/KAGGLE.md.
-import os, sys, warnings
+# RUN THIS CELL FIRST, and re-run it after any kernel restart. Every later cell
+# depends on it. If it fails, the next cell fails with "No module named bwalloc",
+# which looks like a different problem but is not.
+#
+# On a hosted runtime it clones the repo (or pulls, on a re-run) and installs the
+# package into the session, so `import bwalloc` keeps working even from a cell you
+# run on its own after restarting. The repository is public; no token is needed.
+import os, subprocess, sys, warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
@@ -49,19 +51,22 @@ if ROOT is None:
     on_kaggle = Path("/kaggle/working").exists()
     target = Path("/kaggle/working/bwalloc") if on_kaggle else Path("/content/bwalloc")
     if _find_root(target) is None:
-        rc = os.system("git clone -q " + REPO + " " + str(target))
-        if rc != 0 or _find_root(target) is None:
-            raise SystemExit(
-                "git clone failed. On Kaggle, switch Internet on in the notebook "
-                "settings (right sidebar). See docs/KAGGLE.md."
+        if os.system("git clone -q " + REPO + " " + str(target)) != 0 or _find_root(target) is None:
+            raise RuntimeError(
+                "Clone failed. On Kaggle, switch Internet ON in the right sidebar "
+                "(Settings > Internet), then re-run this cell. See docs/KAGGLE.md."
             )
-        print("cloned " + REPO)
+        print("cloned", REPO)
     else:
-        # Already here from an earlier cell or an earlier run in this session: pull.
         os.system("git -C " + str(target) + " pull -q --ff-only")
-        print("pulled latest into " + str(target))
+        print("pulled latest into", target)
     os.chdir(target)
     ROOT = target
+    # Install into the session so `import bwalloc` survives a kernel restart and
+    # does not depend on this cell having set sys.path. --no-deps deliberately:
+    # Kaggle and Colab curate their own numpy/pandas and we must not disturb them.
+    subprocess.run([sys.executable, "-m", "pip", "install", "-q", "-e", ".", "--no-deps"],
+                   cwd=str(ROOT), capture_output=True)
 
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -83,7 +88,16 @@ RESULTS = ROOT / "experiments" / "results"
 # the paper cites, which is exactly the kind of drift this project exists to remove.
 FIGURES = ROOT / "notebooks" / "figures"
 FIGURES.mkdir(parents=True, exist_ok=True)
-print("bwalloc", bw.__version__, "| results:", RESULTS)
+_data = sorted((ROOT / "data").glob("*.csv"))
+_res = sorted(RESULTS.glob("*.csv"))
+print("bwalloc", bw.__version__, "at", ROOT)
+print(f"  data/    {len(_data)} csv  ({', '.join(f.name for f in _data) or 'MISSING'})")
+print(f"  results/ {len(_res)} csv")
+if not _data:
+    raise RuntimeError(
+        "The trace CSVs are missing, so nothing will run. Re-run this cell to "
+        "re-clone, or check that the repository was fetched completely."
+    )
 '''
 
 

@@ -33,12 +33,6 @@ This means `git pull` refreshes `src/`, the data and the results, but **not the 
 in your tab**, which is Colab's own copy. Re-open it from the GitHub tab to pick up a
 change to a notebook itself.
 
-To run all nine from a single session instead of opening nine:
-
-```python
-!python notebooks/run_all.py --out /content/executed --html
-```
-
 ## The loop: change something, see it here
 
 Push from your laptop, then **re-run the first cell** — it runs `git pull --ff-only`
@@ -105,6 +99,25 @@ them on GitHub without running anything.
 **`Could not find the repository, and no GH_TOKEN is available.`**
 The secret is not set, or *Notebook access* is off for this notebook. Both live behind
 the key icon.
+
+**`ModuleNotFoundError: No module named 'bwalloc'`**
+The first cell did not complete. This is the most common error here and it is almost
+never what it looks like — the import cell is fine, it is the cell above it that failed,
+usually because Internet was off so the clone could not run. Scroll up, fix whatever the
+first cell reported, run it again, then continue.
+
+It also appears if you restarted the kernel and ran a later cell without re-running the
+first one. The first cell now installs the package into the session, so `import bwalloc`
+survives a restart — but `ROOT`, `RESULTS` and `FIGURES` are defined there too, so a
+later cell will still fail on those. **After any restart, run the first cell.**
+
+The first cell prints what it found, which is the quickest way to confirm it worked:
+
+```
+bwalloc 0.1.0 at /kaggle/working/bwalloc
+  data/    2 csv  (gp_dhaka.csv, robi_dhaka3.csv)
+  results/ 46 csv
+```
 
 **`git clone failed.`**
 The token is expired, or it does not grant *Contents: Read* on this repository.

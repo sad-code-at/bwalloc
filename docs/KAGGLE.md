@@ -67,31 +67,6 @@ which is Kaggle's own copy. Pulls do reach `src/`, the data and the stored resul
 which is what the running code actually uses. To pick up a change to a notebook
 *itself*, re-import it.
 
-### Running all nine from one notebook
-
-If you want every notebook's output without importing nine of them, run them from the
-clone:
-
-```python
-!python notebooks/run_all.py --out /kaggle/working/executed --html
-```
-
-It executes each notebook in turn, prints progress with expected runtimes, copies the
-figures alongside, and writes executed `.ipynb` files (and rendered `.html` with
-`--html`) into `/kaggle/working/executed`. Save Version afterwards and they appear under
-the notebook's Output tab, ready to download or read in the browser.
-
-`06_foundation_models` is skipped unless `chronos-forecasting` is installed, since it is
-the only notebook needing anything outside Kaggle's default image. Add
-`!pip install -q chronos-forecasting` first to include it.
-
-Useful flags: `--only 02 08` to run a subset, `--timeout` to change the per-notebook
-limit, `--inplace` to overwrite the repository's own copies instead (which is what the
-committed outputs are refreshed with locally).
-
-Expect about 50 minutes for all nine — comfortably inside Kaggle's 12-hour session, but
-worth starting and leaving.
-
 ### Or just read them
 
 Every notebook is committed **with its outputs**, so
@@ -231,6 +206,25 @@ to clone, so it is found automatically. The trade-off is that it is a snapshot: 
 up changes you must re-upload, which is exactly what the pull workflow avoids.
 
 ## Things that go wrong
+
+**`ModuleNotFoundError: No module named 'bwalloc'`**
+The first cell did not complete. This is the most common error here and it is almost
+never what it looks like — the import cell is fine, it is the cell above it that failed,
+usually because Internet was off so the clone could not run. Scroll up, fix whatever the
+first cell reported, run it again, then continue.
+
+It also appears if you restarted the kernel and ran a later cell without re-running the
+first one. The first cell now installs the package into the session, so `import bwalloc`
+survives a restart — but `ROOT`, `RESULTS` and `FIGURES` are defined there too, so a
+later cell will still fail on those. **After any restart, run the first cell.**
+
+The first cell prints what it found, which is the quickest way to confirm it worked:
+
+```
+bwalloc 0.1.0 at /kaggle/working/bwalloc
+  data/    2 csv  (gp_dhaka.csv, robi_dhaka3.csv)
+  results/ 46 csv
+```
 
 **`git clone failed.`** Internet is off. Right sidebar → Settings → Internet → On.
 

@@ -266,9 +266,8 @@ After pushing a change from your laptop, re-run that first cell to pull it; rest
 kernel too if you changed anything under `src/`.
 
 Both platforms open **one notebook at a time** — there is no way to import the whole
-repository as a workspace. To produce every notebook's output from a single session:
-`!python notebooks/run_all.py --out /kaggle/working/executed --html` (about 50 minutes).
-Or just read them on GitHub, where all nine are committed with their outputs.
+repository as a workspace. All nine are committed with their outputs, so you can also
+just read them on GitHub without running anything.
 
 Colab and Kaggle both ship everything notebooks 00–05, 07 and 08 need. Only notebook 06
 wants an extra install:
