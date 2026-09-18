@@ -1,6 +1,6 @@
 # Project status
 
-Last updated: 2026-08-29. Working notes so this can be picked up cold in a new session.
+Last updated: 2026-09-18. Working notes so this can be picked up cold in a new session.
 
 `docs/WALKTHROUGH.md` is the teaching document — run order, vocabulary, what each change
 bought, and how to defend it. This file is the working record; that one is the explanation.
@@ -16,7 +16,7 @@ Original senior's code, untouched, is at
 All new work is in `D:\L4-T-1\EEE 402\project\bwalloc\`.
 
 **The repository is under git and pushed to GitHub** — `main`, remote `origin` at
-<https://github.com/sad-code-at/bwalloc> (**private**). Every session's work is
+<https://github.com/sad-code-at/bwalloc> (**public**, by the user's decision). Every session's work is
 committed, so `git log` is the record of what changed and `git show <sha>` recovers any
 earlier state. Commit *and push* before stopping: `git push`. The remote is the offsite
 backup, so a lost laptop no longer loses the project.
@@ -25,7 +25,7 @@ backup, so a lost laptop no longer loses the project.
 
 ## Done and verified
 
-**Scaffold + library** — complete and tested. `pytest tests/` → **58 passed**.
+**Scaffold + library** — complete and tested. `pytest tests/` → **100 passed**.
 
 | module | status |
 |---|---|
@@ -34,6 +34,8 @@ backup, so a lost laptop no longer loses the project.
 | `splits.py` | done — rolling-origin folds, calibration slice, **embargo** for multi-horizon |
 | `baselines.py` | done — persistence, seasonal-naive, drift, rolling mean, train mean |
 | `models.py` | done — Ridge / RF / XGBoost point + `QuantileGBM` |
+| `architectures.py` | done — TCN, Transformer, DLinear/NLinear, N-BEATS/NBEATSx |
+| `tuning.py` | done — leak-free random search on a development prefix |
 | `evaluate.py` | done — backtest harness, DM tests + BH correction |
 | `forecast.py` | done — direct + recursive multi-horizon, per-horizon naive baselines |
 | `context.py` | done — flag validation, disjoint groups, `UncertaintyModel` |
@@ -41,7 +43,7 @@ backup, so a lost laptop no longer loses the project.
 | `allocation.py` | done — cost model, policies, Pareto sweep |
 | `pipeline.py` | done — end-to-end allocation backtest |
 | `metrics.py`, `stats.py`, `plots.py` | done, and now exercised — every notebook runs clean |
-| `tests/test_bwalloc.py` | done — 58 gates, all passing |
+| `tests/test_bwalloc.py` | done — 100 gates, all passing |
 
 **Experiments run:** `run_audit.py`, `run_benchmark.py`, `run_allocation.py`,
 `run_horizon.py`, `run_coverage_gate.py`. Every table is in `experiments/results/`.
@@ -611,6 +613,84 @@ Notebook: `08_sequence_models.ipynb` — runs the four architectures live and
 reproduces the lag-depth ladder; committed executed.
 Gates: 5 new (52 total; 58 after the notebook-contract gates) — window chronology, contiguity, fit-window-only scaling,
 determinism, lookback/design-matrix agreement.
+
+---
+
+## Covariates, modern architectures and tuning (NEW — code landed, runs in progress)
+
+Three things were true of every number this project had produced, and this round
+addresses all three.
+
+**1. The sequence models had never seen the features.** `sequence_feature_config()`
+builds a bare demand window because the original used `input_shape=(lookback, 1)` and
+notebook 08's contrast depends on isolating architecture from feature set. That is a
+**reproduction constraint, not a recommendation** — and it had never been lifted.
+Meanwhile the trees had the opposite problem: full features at four lags. **No model
+here had seen the full feature set at full lag depth.**
+
+Covariates are time-varying — there is an `is_rain` value at each of the 24 past
+timestamps, not one per window — so they enter as **channels over the lookback**, per the
+covariate taxonomy in DeepAR and the Temporal Fusion Transformer, not as a flat vector.
+
+- `features.FeatureConfig.covariate_lag_samples` emits `{column}__lagS_{n}` through the
+  same `.shift()` path as the demand lags, so `assert_no_leakage` covers the new block
+  with **no exemption** — deliberate, given what this project exists to fix.
+- `sequence.channel_window` groups them into one channel per covariate;
+  `sequence.CovariateSequenceForecaster` is the senior's four architectures widened to
+  read them. GP builds **16 channels x 24 lags + 25 static**; Robi **12 + 21**.
+- `lookback_columns` is untouched, so notebook 08 and `run_sequence.py` still reproduce
+  byte-for-byte.
+
+**2. Only four architectures had been tried.** `src/bwalloc/architectures.py` adds TCN,
+a small Transformer, DLinear/NLinear and N-BEATS/NBEATSx. Each tests a specific reading
+of the lag-depth finding rather than being added for novelty — the linear models are the
+honest control (if a Transformer cannot beat a linear layer it earned nothing), and plain
+N-BEATS is retained **labelled as the univariate control**. PatchTST, Informer/Autoformer
+and the full TFT are recorded as deliberate omissions with reasons in `docs/PROVENANCE.md`.
+
+Because three of these are univariate as their papers define them, "reads the full
+feature set" is **enforced, not intended**: a gate fails any model whose prediction does
+not move when a covariate channel does, and `channel_permutation_importance` reports what
+each channel is actually worth.
+
+Two real bugs this caught, both found by the gates rather than by inspection:
+
+- **NLinear annihilated the context flags.** Its normalisation subtracts the window's
+  last value; a flag constant across the window centres to exactly zero, so `is_rain` was
+  invisible. Fixed to centre the **demand channel only**. Do not "simplify" it back.
+- **NBEATSx was 108k parameters against ~350 training rows.** Fixed with the exogenous
+  encoder the paper actually specifies; now ~53k.
+
+**3. Nothing had ever been tuned.** Every hyperparameter was a default — 30 epochs,
+batch 32, lr 1e-3 from the original notebooks; `n_estimators=300, max_depth=12` by hand.
+So every ranking, notebook 08's included, ranked *whose defaults suited the data*.
+
+`src/bwalloc/tuning.py` does 30-trial seeded random search on a **development prefix**
+that ends before the first evaluation test block, with its own inner rolling-origin
+schedule. **The boundary is a timestamp, not a row count** — a trial may ask for
+`lookback=48`, drop more warm-up rows, and a row-count boundary would slide into
+evaluation data. Two gates pin it. The **feature set is in the search space**
+(`lookback`, `covariates`, `context`), so "do the covariates earn anything?" is settled
+by measurement rather than judgement.
+
+No new dependency: Optuna's TPE would be the obvious alternative and is cited as the road
+not taken, because adding it breaks the zero-install promise in `docs/KAGGLE.md`.
+
+**Gates: 58 -> 100, all passing.**
+
+### Runtimes, measured
+
+Per fold at the largest fit window (814 rows) on GP: ridge 0.01 s, random forest 0.91 s,
+xgboost 1.07 s, and the sequence models 5-13 s each. That is why the arm study is ~45 min
+and the tuning run is hours — budget accordingly, and note `run_tuning.py` checkpoints
+per (model, operator) so an interrupted run resumes.
+
+### Still to fill in
+
+The numbers from `run_full_features.py`, `run_architectures.py`, `run_tuning.py` and
+`run_model_comparison.py` go here once the runs land. **Everything in this section is
+one-step-ahead**: `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still
+use the sparse four-lag design and are unaffected by any of it.
 
 ---
 
