@@ -41,6 +41,7 @@ every number reproduced from `experiments/results/` and gated by `pytest tests/`
 | The current state and open questions | [`STATUS.md`](STATUS.md) — including what is *not* done |
 | Where every method came from | [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — one row per decision, with its source paper |
 | How our numbers compare to published work | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — external results, on comparable metrics |
+| To run the notebooks on Colab | [`docs/COLAB.md`](docs/COLAB.md) — token setup, runtimes, what goes wrong |
 | To run it yourself | [Quick start](#quick-start) below, or `notebooks/` in Colab |
 
 ---
@@ -254,17 +255,24 @@ supplies the service-level guarantee it cannot.
 
 ### Colab
 
-```python
-!git clone https://github.com/sad-code-at/bwalloc.git
-%cd bwalloc
-!pip install -q -r requirements.txt
-import sys; sys.path.insert(0, "src")
+Open any notebook in `notebooks/` and run the first cell — it finds the repository,
+clones it if needed, and puts `src/` on the path.
 
-import bwalloc as bw
-bw.set_seed()
+Because **this repository is private**, the clone needs a credential. Put a GitHub
+token with *Contents: Read* on this repo into Colab **Secrets** (the key icon in the
+sidebar) under the name `GH_TOKEN`, with notebook access enabled. Never paste the token
+into a cell — it would be saved into the `.ipynb`.
+
+Colab already ships everything notebooks 00–05, 07 and 08 need. Only notebook 06 wants
+an extra install:
+
+```python
+!pip install -q chronos-forecasting
 ```
 
-Then open any notebook in `notebooks/`.
+Nothing here needs a GPU. Full instructions, including the Drive and public-repo
+alternatives and the common failure modes, are in
+[`docs/COLAB.md`](docs/COLAB.md).
 
 ### Local
 
@@ -321,6 +329,7 @@ paper/                   paper.md (full draft) and figures/ (9 rendered figures)
 docs/WALKTHROUGH.md      the teaching document: read this first
 docs/PROVENANCE.md       every method mapped to the paper it came from
 docs/BENCHMARKS.md       published RMSE/MAPE figures, and why raw RMSE does not compare
+docs/COLAB.md            running the notebooks on Colab from a private repo
 STATUS.md                working record — what is verified, what is open, what to be careful of
 ```
 

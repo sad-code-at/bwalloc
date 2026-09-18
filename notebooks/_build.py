@@ -19,16 +19,47 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 BOOTSTRAP = '''\
-# --- Colab bootstrap -------------------------------------------------------
-# Works in Colab and locally. In Colab, clone the repo first:
-#     !git clone <repo-url> bwalloc && %cd bwalloc
+# --- Bootstrap: works locally and on Colab ---------------------------------
+# Locally this just finds the repository root. On Colab the repo is not on the VM
+# yet, so it is cloned first. The repository is PRIVATE, which means the clone
+# needs a GitHub token -- put one in Colab Secrets (the key icon in the left
+# sidebar) under the name GH_TOKEN and enable notebook access. See docs/COLAB.md.
 import os, sys, warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
+REPO = "github.com/sad-code-at/bwalloc.git"
+
 ROOT = Path.cwd()
 while not (ROOT / "src" / "bwalloc").exists() and ROOT != ROOT.parent:
     ROOT = ROOT.parent
+
+if not (ROOT / "src" / "bwalloc").exists():
+    target = Path("/content/bwalloc")
+    if not (target / "src" / "bwalloc").exists():
+        try:
+            from google.colab import userdata
+            token = userdata.get("GH_TOKEN")
+        except Exception:
+            token = None
+        if not token:
+            raise SystemExit(
+                "Could not find the repository, and no GH_TOKEN is available. "
+                "On Colab: add a GitHub token in Secrets (the key icon) as "
+                "GH_TOKEN, enable notebook access for this notebook, and re-run "
+                "-- see docs/COLAB.md. Locally: run this notebook from inside "
+                "the repository."
+            )
+        # The token never reaches stdout: git is quiet and errors are sanitised.
+        rc = os.system(f"git clone -q https://{token}@{REPO} {target} 2>/dev/null")
+        if rc != 0 or not (target / "src" / "bwalloc").exists():
+            raise SystemExit(
+                "git clone failed. Check that GH_TOKEN is valid, not expired, and "
+                "has read access to this repository (Contents: Read)."
+            )
+    os.chdir(target)
+    ROOT = target
+
 sys.path.insert(0, str(ROOT / "src"))
 
 try:
