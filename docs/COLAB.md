@@ -23,6 +23,22 @@ import bwalloc as bw
 bw.set_seed()
 ```
 
+## One notebook at a time
+
+Colab, like Kaggle, opens a **single notebook** — the GitHub browser copies one
+`.ipynb` onto Colab's servers, so there is no way to open the whole repository at once.
+The first cell then clones the project for the code and data.
+
+This means `git pull` refreshes `src/`, the data and the results, but **not the notebook
+in your tab**, which is Colab's own copy. Re-open it from the GitHub tab to pick up a
+change to a notebook itself.
+
+To run all nine from a single session instead of opening nine:
+
+```python
+!python notebooks/run_all.py --out /content/executed --html
+```
+
 ## The loop: change something, see it here
 
 Push from your laptop, then **re-run the first cell** — it runs `git pull --ff-only`

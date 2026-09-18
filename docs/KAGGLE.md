@@ -47,6 +47,59 @@ results are under `experiments/results/`.
 
 ---
 
+## Why importing the repo does not give you nine notebooks
+
+A Kaggle notebook is a **single document**, not a workspace. The GitHub import copies
+*one* `.ipynb` onto Kaggle's servers; there is no "open this repository" that gives you
+all nine. That is why importing one notebook at a time works and there is no bulk
+equivalent. Colab behaves the same way.
+
+Two separate things are therefore in play:
+
+| | Where it lives | How it gets there |
+|---|---|---|
+| The notebook you are editing | Kaggle's servers | Imported, one at a time |
+| `src/`, `data/`, `experiments/results/` | `/kaggle/working/bwalloc` | Cloned by the first cell |
+
+**The consequence that catches people:** `git pull` updates the notebook files on disk
+under `/kaggle/working/bwalloc/notebooks/`, but **not the notebook open in your tab**,
+which is Kaggle's own copy. Pulls do reach `src/`, the data and the stored results,
+which is what the running code actually uses. To pick up a change to a notebook
+*itself*, re-import it.
+
+### Running all nine from one notebook
+
+If you want every notebook's output without importing nine of them, run them from the
+clone:
+
+```python
+!python notebooks/run_all.py --out /kaggle/working/executed --html
+```
+
+It executes each notebook in turn, prints progress with expected runtimes, copies the
+figures alongside, and writes executed `.ipynb` files (and rendered `.html` with
+`--html`) into `/kaggle/working/executed`. Save Version afterwards and they appear under
+the notebook's Output tab, ready to download or read in the browser.
+
+`06_foundation_models` is skipped unless `chronos-forecasting` is installed, since it is
+the only notebook needing anything outside Kaggle's default image. Add
+`!pip install -q chronos-forecasting` first to include it.
+
+Useful flags: `--only 02 08` to run a subset, `--timeout` to change the per-notebook
+limit, `--inplace` to overwrite the repository's own copies instead (which is what the
+committed outputs are refreshed with locally).
+
+Expect about 50 minutes for all nine — comfortably inside Kaggle's 12-hour session, but
+worth starting and leaving.
+
+### Or just read them
+
+Every notebook is committed **with its outputs**, so
+[the `notebooks/` folder on GitHub](https://github.com/sad-code-at/bwalloc/tree/main/notebooks)
+renders all nine with their tables and figures, no session required.
+
+---
+
 ## The loop: change something, see it on Kaggle
 
 This is the workflow you asked about.
