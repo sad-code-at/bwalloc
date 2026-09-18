@@ -41,7 +41,7 @@ every number reproduced from `experiments/results/` and gated by `pytest tests/`
 | The current state and open questions | [`STATUS.md`](STATUS.md) — including what is *not* done |
 | Where every method came from | [`docs/PROVENANCE.md`](docs/PROVENANCE.md) — one row per decision, with its source paper |
 | How our numbers compare to published work | [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — external results, on comparable metrics |
-| To run the notebooks on Colab | [`docs/COLAB.md`](docs/COLAB.md) — token setup, runtimes, what goes wrong |
+| To run the notebooks on Colab or Kaggle | [`docs/COLAB.md`](docs/COLAB.md) and [`docs/KAGGLE.md`](docs/KAGGLE.md) — token setup, runtimes, what goes wrong |
 | To run it yourself | [Quick start](#quick-start) below, or `notebooks/` in Colab |
 
 ---
@@ -253,7 +253,7 @@ supplies the service-level guarantee it cannot.
 
 ## Quick start
 
-### Colab
+### Colab and Kaggle
 
 Open any notebook in `notebooks/` and run the first cell — it finds the repository,
 clones it if needed, and puts `src/` on the path.
@@ -270,9 +270,13 @@ an extra install:
 !pip install -q chronos-forecasting
 ```
 
-Nothing here needs a GPU. Full instructions, including the Drive and public-repo
-alternatives and the common failure modes, are in
-[`docs/COLAB.md`](docs/COLAB.md).
+**Kaggle** works the same way, with two differences: Internet must be switched on in the
+notebook settings, and the secret lives under *Add-ons → Secrets*. Kaggle also offers a
+no-token route — upload the repo as a private Kaggle Dataset and it mounts read-only
+under `/kaggle/input`, which the bootstrap finds automatically.
+
+Nothing here needs a GPU on either platform. Full instructions and the common failure
+modes are in [`docs/COLAB.md`](docs/COLAB.md) and [`docs/KAGGLE.md`](docs/KAGGLE.md).
 
 ### Local
 
@@ -330,6 +334,7 @@ docs/WALKTHROUGH.md      the teaching document: read this first
 docs/PROVENANCE.md       every method mapped to the paper it came from
 docs/BENCHMARKS.md       published RMSE/MAPE figures, and why raw RMSE does not compare
 docs/COLAB.md            running the notebooks on Colab from a private repo
+docs/KAGGLE.md           the same for Kaggle, plus the no-token Dataset route
 STATUS.md                working record — what is verified, what is open, what to be careful of
 ```
 

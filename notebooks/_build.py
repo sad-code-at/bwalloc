@@ -19,43 +19,66 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 BOOTSTRAP = '''\
-# --- Bootstrap: works locally and on Colab ---------------------------------
-# Locally this just finds the repository root. On Colab the repo is not on the VM
-# yet, so it is cloned first. The repository is PRIVATE, which means the clone
-# needs a GitHub token -- put one in Colab Secrets (the key icon in the left
-# sidebar) under the name GH_TOKEN and enable notebook access. See docs/COLAB.md.
+# --- Bootstrap: works locally, on Colab and on Kaggle ----------------------
+# Locally this just finds the repository root. On a hosted runtime the repo is not
+# on the machine yet, so it is cloned first. The repository is PRIVATE, so the
+# clone needs a GitHub token with Contents:Read on it. Put one in:
+#   Colab   -- Secrets, the key icon in the left sidebar, named GH_TOKEN
+#   Kaggle  -- Add-ons > Secrets, named GH_TOKEN (and switch Internet on)
+# See docs/COLAB.md and docs/KAGGLE.md.
 import os, sys, warnings
 from pathlib import Path
 
 warnings.filterwarnings("ignore")
 REPO = "github.com/sad-code-at/bwalloc.git"
 
-ROOT = Path.cwd()
-while not (ROOT / "src" / "bwalloc").exists() and ROOT != ROOT.parent:
-    ROOT = ROOT.parent
+def _find_root(start: Path):
+    node = start
+    while not (node / "src" / "bwalloc").exists() and node != node.parent:
+        node = node.parent
+    return node if (node / "src" / "bwalloc").exists() else None
 
-if not (ROOT / "src" / "bwalloc").exists():
-    target = Path("/content/bwalloc")
-    if not (target / "src" / "bwalloc").exists():
-        try:
-            from google.colab import userdata
-            token = userdata.get("GH_TOKEN")
-        except Exception:
-            token = None
-        if not token:
+def _token():
+    try:                                   # Colab
+        from google.colab import userdata
+        return userdata.get("GH_TOKEN")
+    except Exception:
+        pass
+    try:                                   # Kaggle
+        from kaggle_secrets import UserSecretsClient
+        return UserSecretsClient().get_secret("GH_TOKEN")
+    except Exception:
+        pass
+    return os.environ.get("GH_TOKEN")      # anything else
+
+ROOT = _find_root(Path.cwd())
+
+if ROOT is None:
+    # Kaggle mounts read-only copies under /kaggle/input; prefer one if present.
+    for candidate in Path("/kaggle/input").glob("*/src/bwalloc"):
+        ROOT = candidate.parent.parent
+        break
+
+if ROOT is None:
+    on_kaggle = Path("/kaggle/working").exists()
+    target = Path("/kaggle/working/bwalloc") if on_kaggle else Path("/content/bwalloc")
+    if _find_root(target) is None:
+        tok = _token()
+        if not tok:
             raise SystemExit(
-                "Could not find the repository, and no GH_TOKEN is available. "
-                "On Colab: add a GitHub token in Secrets (the key icon) as "
-                "GH_TOKEN, enable notebook access for this notebook, and re-run "
-                "-- see docs/COLAB.md. Locally: run this notebook from inside "
-                "the repository."
+                "Could not find the repository and no GH_TOKEN is available. "
+                "Colab: add it under Secrets (the key icon). "
+                "Kaggle: Add-ons > Secrets, and switch Internet on. "
+                "See docs/COLAB.md or docs/KAGGLE.md. "
+                "Locally: run this notebook from inside the repository."
             )
-        # The token never reaches stdout: git is quiet and errors are sanitised.
-        rc = os.system(f"git clone -q https://{token}@{REPO} {target} 2>/dev/null")
-        if rc != 0 or not (target / "src" / "bwalloc").exists():
+        # Quiet, and stderr discarded, so the token never reaches the output.
+        rc = os.system("git clone -q https://" + tok + "@" + REPO + " " + str(target) + " 2>/dev/null")
+        if rc != 0 or _find_root(target) is None:
             raise SystemExit(
-                "git clone failed. Check that GH_TOKEN is valid, not expired, and "
-                "has read access to this repository (Contents: Read)."
+                "git clone failed. Check that GH_TOKEN is valid, unexpired, and "
+                "grants Contents:Read on this repository. On Kaggle also check "
+                "that Internet is enabled in the notebook settings."
             )
     os.chdir(target)
     ROOT = target

@@ -152,7 +152,11 @@ The bootstrap then finds the repository by walking up and never tries to clone. 
 cost is that Drive is slow for many small files, and you must re-upload by hand to get
 changes.
 
-**Make the repository public.** Then a plain `git clone` works with no credential.
-Before doing that, note that the repository contains the two operator traces, which
-were inherited rather than collected, and an unpublished paper draft — see the
-visibility discussion in `STATUS.md`.
+**Use Kaggle instead.** Kaggle offers a route that needs no token *and* no internet:
+upload the repository as a private Kaggle Dataset and it mounts read-only under
+`/kaggle/input`, where the bootstrap finds it. See [`KAGGLE.md`](KAGGLE.md).
+
+Making the repository public would also remove the need for a credential, but it is
+not recommended and is not necessary: the repository holds the two operator traces,
+which were inherited rather than collected, and an unpublished paper draft. Publishing
+is effectively irreversible.
