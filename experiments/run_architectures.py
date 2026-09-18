@@ -57,6 +57,19 @@ EPOCHS = 60
 #: Models worth asking "what are you actually reading?" of. Cheap enough to permute.
 IMPORTANCE_MODELS = ("tcn", "transformer", "nbeatsx", "gru_cov")
 
+#: Both feature sets, because run_full_features.py found the covariate channels make
+#: every model WORSE on both traces -- GP's CNN goes 7.875 univariate to 14.311 with
+#: covariates, random forest 8.651 to 9.014. Scoring the new architectures only on the
+#: covariate design would therefore handicap them against a finding we already have.
+#: Running both says what each architecture is worth *and* whether any of them is the
+#: one that can finally use the extra inputs at this sample size.
+FEATURE_SETS = {
+    "dense": full_feature_config(LOOKBACK, covariates=False),
+    "dense_covariates": full_feature_config(LOOKBACK, covariates=True),
+}
+#: The arm the headline table and the figures come from.
+HEADLINE = "dense"
+
 
 def build_models():
     models = list(default_point_models())
@@ -75,34 +88,61 @@ def main() -> None:
     for operator in ("gp", "robi"):
         df = load(operator)
         profile = sampling_profile(df)
-        config = full_feature_config(LOOKBACK, covariates=True)
-        assert_no_leakage(df, profile, config)
 
-        X, y = build_features(df, profile, config)
-        spec = channel_window(X, LOOKBACK)
-        folds = rolling_origin(len(y), n_folds=N_FOLDS)
+        built = {}
+        for arm, config in FEATURE_SETS.items():
+            assert_no_leakage(df, profile, config)
+            built[arm] = build_features(df, profile, config)
+
+        # One row index across both arms, so the fold schedule cannot differ.
+        common = None
+        for Xa, _ in built.values():
+            common = Xa.index if common is None else common.intersection(Xa.index)
+        folds = rolling_origin(len(common), n_folds=N_FOLDS)
+
+        X, y = built[HEADLINE]
+        X, y = X.loc[common], y.loc[common]
+        X_cov, y_cov = built["dense_covariates"]
+        X_cov, y_cov = X_cov.loc[common], y_cov.loc[common]
+        spec = channel_window(X_cov, LOOKBACK)
         baselines = standard_baselines(y.to_numpy(), profile.daily_period)
         baselines.append(SeasonalNaive(y.to_numpy(), period=24))
 
-        models = build_models()
-
         print("=" * 96)
-        print(f"{operator.upper()}  —  {len(X)} rows, {spec.n_channels} channels "
+        print(f"{operator.upper()}  —  {len(common)} rows, {spec.n_channels} channels "
               f"x {LOOKBACK} lags + {len(spec.static)} static, {N_FOLDS} folds")
         print("=" * 96)
 
-        started = time.time()
-        per_fold, predictions = run_backtest(
-            X, y, folds, models=models, baselines=baselines,
-            season_lag=profile.daily_period,
-        )
-        summary = beats_baseline(summarise(per_fold))
-        print(f"({time.time() - started:.0f}s)")
+        arm_frames, predictions = [], None
+        for arm, (Xa, ya) in built.items():
+            Xa, ya = Xa.loc[common], ya.loc[common]
+            started = time.time()
+            per_arm, preds = run_backtest(
+                Xa, ya, folds, models=build_models(), baselines=baselines,
+                season_lag=profile.daily_period,
+            )
+            per_arm["arm"] = arm
+            arm_frames.append(per_arm)
+            if arm == HEADLINE:
+                predictions = preds
+            print(f"  {arm:18} {Xa.shape[1]:4} columns  {time.time() - started:5.0f}s")
+
+        per_fold = pd.concat(arm_frames, ignore_index=True)
+        per_fold.to_csv(RESULTS / f"arch_{operator}_perfold.csv", index=False)
+
+        arms = (per_fold.groupby(["arm", "model"], as_index=False)["rmse"]
+                .agg(rmse_mean="mean", rmse_std="std"))
+        arms["operator"] = operator
+        arms.to_csv(RESULTS / f"arch_{operator}_arms.csv", index=False)
+        print("\n  Feature set against architecture:")
+        print(arms.pivot(index="model", columns="arm", values="rmse_mean")
+              .sort_values(HEADLINE).to_string(float_format=lambda v: f"{v:9.3f}"))
+
+        summary = beats_baseline(summarise(per_fold[per_fold["arm"] == HEADLINE]))
+        print(f"\n  Headline arm ({HEADLINE}):")
         print(summary[["model", "rmse_mean", "rmse_std", "mae_mean", "mase_mean",
                        "vs_persistence", "beats_persistence"]]
               .to_string(index=False, float_format=lambda v: f"{v:9.3f}"))
-
-        per_fold.to_csv(RESULTS / f"arch_{operator}_perfold.csv", index=False)
         summary.to_csv(RESULTS / f"arch_{operator}_summary.csv", index=False)
 
         dm = dm_matrix(predictions, horizon=1)
@@ -120,8 +160,11 @@ def main() -> None:
         # importance needs a fitted model and run_backtest does not keep them.
         last = folds[-1]
         fit_idx = np.concatenate([last.train, last.calib])
-        X_fit, y_fit = X.iloc[fit_idx], y.iloc[fit_idx]
-        X_test, y_test = X.iloc[last.test], y.iloc[last.test]
+        # Deliberately the covariate design: it is the only arm with anything but
+        # demand to permute, and the question here is what the extra channels are
+        # worth -- which stays worth measuring even though the arm scores worse.
+        X_fit, y_fit = X_cov.iloc[fit_idx], y_cov.iloc[fit_idx]
+        X_test, y_test = X_cov.iloc[last.test], y_cov.iloc[last.test]
 
         importance_rows, attention_rows = [], []
         for model in build_models():

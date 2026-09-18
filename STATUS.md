@@ -685,12 +685,69 @@ xgboost 1.07 s, and the sequence models 5-13 s each. That is why the arm study i
 and the tuning run is hours — budget accordingly, and note `run_tuning.py` checkpoints
 per (model, operator) so an interrupted run resumes.
 
+### The answer: the covariates do not help. They hurt, on both operators.
+
+`run_full_features.py`, five arms on one common row index (GP 881 rows, Robi 864),
+8 folds. RMSE:
+
+**GP**
+
+| model | lags_only | full_sparse | full_dense | dense_no_context | **full_dense_covariates** |
+|---|---|---|---|---|---|
+| cnn | 7.875 | — | 7.875 | 7.875 | 7.875 |
+| **cnn_cov** | — | — | — | — | **14.311** |
+| gru | 8.559 | — | 8.559 | 8.559 | 8.559 |
+| **gru_cov** | — | — | — | — | **10.643** |
+| rnn | 8.625 | — | 8.625 | 8.625 | **10.007** (`rnn_cov`) |
+| lstm | 8.816 | — | 8.816 | 8.816 | **11.938** (`lstm_cov`) |
+| random_forest | 8.673 | 10.562 | 8.651 | **8.619** | 9.014 |
+| xgboost | 8.846 | 10.787 | **8.733** | 8.811 | 8.798 |
+| ridge | 8.879 | 11.300 | 9.007 | 8.799 | **14.146** |
+| persistence | 12.164 | | | | |
+
+**Robi** — same direction throughout: cnn 20.160 against `cnn_cov` 26.190, gru 19.876
+against `gru_cov` 21.717, random_forest 20.519 against 20.931, ridge 20.143 against
+25.582. Persistence 29.864.
+
+**This is a negative result, and it is the honest answer to "use all the features, not
+just the lags".** Adding roughly 385 covariate columns to ~350-800 training rows costs
+every model on both traces. It is a capacity result, not a wiring fault: the gates prove
+each architecture consumes its covariate channels (flipping `is_rain` moves the
+prediction), so the channels are read and then not paid for.
+
+**The tuning search reached the same conclusion independently**, which is the strongest
+form of this evidence because nothing coordinated the two. With `covariates` in the
+search space, the selected configuration on GP was:
+
+| model | default | tuned | DM p | what it chose |
+|---|---|---|---|---|
+| cnn_cov | 14.311 | **8.279** | <0.001 | `covariates=False`, lookback 12 |
+| lstm_cov | 11.938 | **8.370** | <0.001 | `covariates=False`, lookback 8 |
+| ridge | 9.007 | **8.688** | 0.002 | covariates=True, context=none |
+| random_forest | 8.651 | 8.744 (**worse**) | 0.568 | lookback 12 |
+| xgboost | 8.733 | 8.753 (worse) | 0.832 | lookback 12 |
+
+Putting the feature set in the search space is what made that measurable rather than a
+matter of judgement. **Report the trees honestly**: tuning made random forest and XGBoost
+slightly worse on held-out folds and neither change is significant, so the search
+overfitted its inner split and the trees were already near their best at defaults.
+
+### The other two findings survive, and one is reinforced
+
+- **Context flags stay neutral.** `dense_no_context` (8.619 GP) is indistinguishable from
+  `full_dense` (8.651), exactly as notebook 01's ablation found at four lags. Adding them
+  at depth 24 changes nothing.
+- **Lag depth is still the lever, and still only on GP.** `full_sparse` 10.562 ->
+  `full_dense` 8.651 is the same 18% notebook 08 reported. On Robi `full_sparse` 20.722 ->
+  `lags_only` 20.519 is nothing. Two operators, one effect.
+
 ### Still to fill in
 
-The numbers from `run_full_features.py`, `run_architectures.py`, `run_tuning.py` and
-`run_model_comparison.py` go here once the runs land. **Everything in this section is
-one-step-ahead**: `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still
-use the sparse four-lag design and are unaffected by any of it.
+`run_architectures.py` (now scoring **both** feature sets, since handicapping the new
+architectures on a design we already know is worse would be a rigged comparison) and
+`run_model_comparison.py`. **Everything in this section is one-step-ahead**:
+`run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still use the sparse
+four-lag design and are unaffected by any of it.
 
 ---
 
