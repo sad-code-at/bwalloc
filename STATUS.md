@@ -741,11 +741,74 @@ overfitted its inner split and the trees were already near their best at default
   `full_dense` 8.651 is the same 18% notebook 08 reported. On Robi `full_sparse` 20.722 ->
   `lags_only` 20.519 is nothing. Two operators, one effect.
 
+### Architectures: the TCN wins, on both operators — a new best on GP
+
+`run_architectures.py`, both feature sets, 8 folds. RMSE on the `dense` arm (full
+corrected features, demand lags 1-24, no covariate channels), and what the covariate
+channels cost each model:
+
+| | GP `dense` | cov. cost | Robi `dense` | cov. cost |
+|---|---|---|---|---|
+| **tcn** | **7.474** | +49% | **19.879** | +29% |
+| nbeats *(univariate control)* | 7.833 | **0%** | 22.559 | **0%** |
+| cnn_cov | 8.019 | +79% | 20.300 | +29% |
+| random_forest | 8.651 | +4% | 20.529 | +2% |
+| xgboost | 8.733 | +1% | 20.773 | +1% |
+| dlinear | 8.945 | +67% | 20.953 | +19% |
+| ridge | 9.007 | +57% | 21.011 | +22% |
+| nbeatsx | 9.078 | +10% | 22.685 | +3% |
+| nlinear | 9.138 | +34% | 20.641 | +12% |
+| transformer | 9.198 | +48% | 21.885 | +12% |
+| persistence | 12.164 | | 29.864 | |
+
+**The TCN is the best model this project has produced on GP** — 7.474 against notebook
+08's CNN at 7.875 and the corrected benchmark's random forest at 10.41. Diebold-Mariano
+with BH correction: it wins **17 of 18** comparisons on GP and **9 of 18** on Robi, so
+unlike almost every other finding here it replicates on the second operator. That is
+what the architecture was picked to test: the original's "CNN" is a single undilated
+`Conv1D`, and the dilated causal version is the principled form of the model that had
+already won.
+
+**The `nbeats` row is an internal control worth reading twice.** It is the one model that
+ignores covariate channels by construction, and it is the one model whose covariate cost
+is exactly zero. Every model that *can* read them is made worse by them. Nothing
+coordinated that.
+
+### What each input channel is actually worth
+
+`channel_permutation_importance`, RMSE cost of shuffling one channel across the whole
+window, averaged over tcn / transformer / nbeatsx / gru_cov:
+
+| channel | GP | Robi |
+|---|---|---|
+| **demand** | **11.04** | **28.47** |
+| day_cos1 | 0.35 | 4.37 |
+| day_sin1 | 0.18 | 1.92 |
+| is_event | 0.05 | — |
+
+**Demand outweighs the best covariate by 30x on GP and 6.5x on Robi, and the context
+flags are worth essentially nothing.** This is the direct measurement behind the negative
+result: the models do read the channels — the gates prove it — and the channels have
+almost nothing in them. On Robi the daily Fourier channels carry modest signal, which is
+consistent with Robi's much stronger daily autocorrelation (ACF +0.82 against GP's +0.45).
+
+### Attention does not concentrate at the daily period — on GP
+
+Peak attention 0.071 against 0.042 uniform, so it is barely peaked at all.
+
+- **GP** top lags 5, 6, 24, 7, 23. The measured daily period is 17, and it is not there.
+- **Robi** top lags 12, 14, 13, 18, 1. The measured daily period is 15, and lags 13-14
+  sit right against it.
+
+Read alongside the ACF (GP +0.45, Robi +0.82 at the true period) this is coherent: the
+operator with the strong daily cycle is the one whose attention finds it. It also means
+**the lag-depth gain on GP is not seasonality** — a deep window there buys general
+short-run smoothing, not a daily echo. That is a more specific claim than notebook 08
+could make.
+
 ### Still to fill in
 
-`run_architectures.py` (now scoring **both** feature sets, since handicapping the new
-architectures on a design we already know is worse would be a rigged comparison) and
-`run_model_comparison.py`. **Everything in this section is one-step-ahead**:
+`run_model_comparison.py`, once the tuning search lands. **Everything in this section is one-step-ahead**:
 `run_horizon.py`, `run_allocation.py` and `run_coverage_gate.py` still use the sparse
 four-lag design and are unaffected by any of it.
 

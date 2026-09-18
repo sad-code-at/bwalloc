@@ -1,0 +1,9 @@
+operator,model,n_parameters
+gp,gru_cov,0
+gp,tcn,23898
+gp,transformer,18522
+gp,nbeatsx,53131
+robi,gru_cov,0
+robi,tcn,23382
+robi,transformer,18390
+robi,nbeatsx,49931
