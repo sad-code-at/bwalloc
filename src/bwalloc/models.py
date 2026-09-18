@@ -70,14 +70,18 @@ def ridge(alpha: float = 1.0, name: str = "ridge") -> SklearnForecaster:
 
 
 def random_forest(n_estimators: int = 300, max_depth: int | None = 12,
-                  seed: int = 42, name: str = "random_forest") -> SklearnForecaster:
-    return SklearnForecaster(
-        RandomForestRegressor(
-            n_estimators=n_estimators, max_depth=max_depth,
-            random_state=seed, n_jobs=-1,
-        ),
-        name,
+                  seed: int = 42, name: str = "random_forest",
+                  **kwargs) -> SklearnForecaster:
+    """The benchmark's workhorse. ``**kwargs`` reaches the estimator directly, which is
+    what lets ``bwalloc.tuning`` search ``min_samples_leaf`` and ``max_features``
+    without this signature having to enumerate every knob -- the same arrangement
+    :func:`xgboost_point` already uses."""
+    params = dict(
+        n_estimators=n_estimators, max_depth=max_depth,
+        random_state=seed, n_jobs=-1,
     )
+    params.update(kwargs)
+    return SklearnForecaster(RandomForestRegressor(**params), name)
 
 
 def xgboost_point(seed: int = 42, name: str = "xgboost", **kwargs) -> SklearnForecaster:

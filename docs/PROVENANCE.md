@@ -106,6 +106,33 @@ that shaped a decision without being cited, which is still worth being able to n
 | CNN / LSTM / GRU / RNN architectures for traffic forecasting | `sequence.py` | Architectures taken directly from the original study's notebooks, which follow standard practice; see Wang et al. 2024 survey for the family | practice |
 | **That the original's sequence-model win was a split artefact, and that re-run fairly the CNN still wins on GP (p = 0.003) while everything ties on Robi** | Paper §4.5 | — | **ours** |
 
+### 7b. Covariates in sequence models
+
+The original architectures read `input_shape=(lookback, 1)` — a bare demand window with
+no Fourier terms, no calendar and no context flags. `sequence.py` reproduced that exactly,
+because the point was a like-for-like comparison against the original study. That is a
+**reproduction constraint, not a modelling recommendation**, and these rows are the
+sources for lifting it.
+
+| Idea | Where used | Source | Status |
+|---|---|---|---|
+| Covariate taxonomy — past covariates, known-future covariates and static covariates are different things and enter a forecaster differently. This is why exogenous features enter as *windowed channels* over the lookback rather than one flat vector, and why the target timestamp's Fourier terms are legitimately available at forecast time | `features.FeatureConfig.covariate_lag_samples`, `sequence.channel_window`, notebook 09 | Lim, Arik, Loeff & Pfister, *Temporal Fusion Transformers for Interpretable Multi-horizon Time Series Forecasting*, arXiv:1912.09363, 2019; Int. J. Forecasting 37(4):1748–1764, 2021 | verified 2026-09-18 (arXiv) |
+| Feeding covariates alongside an autoregressive sequence model, concatenated with the recurrent state | `sequence.CovariateSequenceForecaster` | Salinas, Flunkert & Gasthaus, *DeepAR*, arXiv:1704.04110, 2017; extended version with Januschowski in Int. J. Forecasting 36(3):1181–1191, 2020 | verified 2026-09-18 (arXiv lists three authors; the journal version adds Januschowski) |
+| Permutation importance as the measure of what each input channel is worth | `run_architectures.py`, `arch_channel_importance_*.csv` | Breiman, *Random Forests*, Machine Learning 45(1):5–32, 2001 | standard |
+
+### 7c. Modern architectures
+
+| Idea | Where used | Source | Status |
+|---|---|---|---|
+| **TCN** — dilated causal convolutions with residual blocks; the principled version of the single undilated `Conv1D` the original used, and the paper argues this class should be the default starting point for sequence modelling ahead of LSTMs | `architectures.TCN`, notebook 10 | Bai, Kolter & Koltun, *An Empirical Evaluation of Generic Convolutional and Recurrent Networks for Sequence Modeling*, arXiv:1803.01271, 2018 | verified 2026-09-18 |
+| That TCNs are an established choice for *network traffic* specifically, not only generic sequences | Notebook 10 applicability argument | Zhang et al., *A novel hybrid framework based on temporal convolution network and transformer for network traffic prediction*, PLOS ONE 18(9):e0288935, 2023 | standard (DOI from journal listing; author list not machine-checked) |
+| **Self-attention** — lets the model weight individual lag positions instead of treating all 24 alike, which is the direct test of this project's own lag-depth finding | `architectures.TransformerForecaster`, `fig13_attention_*.png` | Vaswani, Shazeer, Parmar, Uszkoreit, Jones, Gomez, Kaiser & Polosukhin, *Attention Is All You Need*, arXiv:1706.03762, 2017; NeurIPS 30 | verified 2026-09-18 |
+| **DLinear / NLinear** — a one-layer linear model on a decomposed series beat every Transformer the authors tested. Included here as the honest control: if a Transformer cannot beat a linear layer, it earned nothing | `architectures.DLinear`, `architectures.NLinear` | Zeng, Chen, Zhang & Xu, *Are Transformers Effective for Time Series Forecasting?*, arXiv:2205.13504, 2022; AAAI 37(9):11121–11128, 2023 | verified 2026-09-18 (arXiv; AAAI pages from the proceedings listing) |
+| **N-BEATS** — deep stack of fully connected blocks with backward/forward residual links and an interpretable trend/seasonality basis | `architectures.NBeats` (univariate control only) | Oreshkin, Carpov, Chapados & Bengio, *N-BEATS: Neural basis expansion analysis for interpretable time series forecasting*, arXiv:1905.10437, 2019; ICLR 2020 | verified 2026-09-18 |
+| **NBEATSx** — N-BEATS with an exogenous block; the N-BEATS family's own answer to "how do covariates enter?", and the reported member of the pair | `architectures.NBeatsX` | Olivares, Challu, Marcjasz, Weron & Dubrawski, *Neural basis expansion analysis with exogenous variables*, arXiv:2104.05522, 2021; Int. J. Forecasting 39(2):884–900, 2023, doi:10.1016/j.ijforecast.2022.03.001 | verified 2026-09-18 |
+| **PatchTST — considered and rejected**, recorded so the omission is a decision rather than an oversight: patching a 24-step window yields ~3 tokens, so the mechanism the paper depends on cannot operate at our lookback | Notebook 10 | Nie, Nguyen, Sinthong & Kalagnanam, *A Time Series is Worth 64 Words*, arXiv:2211.14730, 2022; ICLR 2023 | verified 2026-09-18 |
+| That gradient boosting on a windowed representation competes with state-of-the-art deep models — the reason the trees stay in every table rather than being treated as a legacy baseline | Notebook 10 expectation-setting, notebook 12 | Elsayed, Thyssens, Rashed, Jomaa & Schmidt-Thieme, *Do We Really Need Deep Learning Models for Time Series Forecasting?*, arXiv:2101.02118, 2021 | verified 2026-09-18 |
+
 ## 8. Statistical tests
 
 | Idea | Where used | Source | Status |
@@ -113,6 +140,19 @@ that shaped a decision without being cited, which is still worth being able to n
 | Welch's unequal-variance *t*-test — flag effect on the level | `context.py` flag audit, paper §7.1 | Welch, *The generalization of Student's problem when several different population variances are involved*, Biometrika 34(1/2):28–35, 1947 | standard |
 | Levene / Brown–Forsythe test for equality of variances — flag effect on the spread | `context.py` flag audit, paper §7.1 | Levene, 1960, in *Contributions to Probability and Statistics*; Brown & Forsythe, JASA 69(346):364–367, 1974 | standard |
 | Clopper–Pearson exact binomial interval — used instead of a normal approximation at n = 179 | Paper §7.2 coverage tables | Clopper & Pearson, *The use of confidence or fiducial limits illustrated in the case of the binomial*, Biometrika 26(4):404–413, 1934 | standard |
+
+## 9. Hyperparameter tuning
+
+Every hyperparameter in this project before this point was a default: 30 epochs, batch
+32 and lr 1e-3 inherited from the original notebooks, `n_estimators=300, max_depth=12`
+picked by hand. A ranking of untuned models ranks whose defaults happen to suit the data.
+
+| Idea | Where used | Source | Status |
+|---|---|---|---|
+| Random search over grid search — most hyperparameters do not matter, so at equal budget random search covers the ones that do far better | `tuning.random_search` | Bergstra & Bengio, *Random Search for Hyper-Parameter Optimization*, JMLR 13:281–305, 2012 | standard |
+| TPE / Optuna — **the alternative not taken**, recorded so the choice is defensible: adding it would break the zero-install property `docs/KAGGLE.md` promises, and 30-trial seeded random search needs no dependency | `tuning.py` design note | Akiba, Sano, Yanase, Ohta & Koyama, *Optuna: A Next-generation Hyperparameter Optimization Framework*, arXiv:1907.10902, 2019; KDD 2019 | verified 2026-09-18 |
+| Model selection must happen on data the test folds never touch; for a time series that means an inner split that respects temporal order | `tuning.development_prefix`, gate `test_tuning_prefix_ends_before_the_first_test_block` | Bergmeir & Benítez, Information Sciences 191:192–213, 2012 (already cited in §3); Tashman 2000 | standard |
+| **That the feature set itself belongs in the search space** — `covariates on/off`, `context_flags all/is_rain/none` and `lookback` are tuned alongside learning rate, so the question "do the covariates earn anything?" is settled by measurement rather than by the default | `tuning.SEARCH_SPACES` | — | **ours** (a protocol decision) |
 
 ---
 
@@ -146,6 +186,6 @@ the paper does not imply otherwise.
 
 ---
 
-*Last updated 2026-09-18. Published performance figures are collected separately in [`BENCHMARKS.md`](BENCHMARKS.md). arXiv entries verified against the arXiv API on the dates
+*Last updated 2026-09-18 (architectures, covariates and tuning added). Published performance figures are collected separately in [`BENCHMARKS.md`](BENCHMARKS.md). arXiv entries verified against the arXiv API on the dates
 shown. Entries marked "standard" are classical references stated from bibliographic
 knowledge and should be spot-checked against the originals before submission.*

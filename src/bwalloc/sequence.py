@@ -258,3 +258,325 @@ def sequence_feature_config(lookback: int = 24):
         calendar_ints=False,
         use_context=False,
     )
+
+
+# --------------------------------------------------------------------------- #
+# Covariate-aware sequence models
+#
+# Everything above reproduces the original study, which read a bare demand window
+# (``input_shape=(lookback, 1)``). That was a reproduction constraint and nothing more.
+# These traces carry nine context flags on GP and five on Robi, plus Fourier terms of
+# wall-clock time, and `is_rain` is the one feature the audit found a real effect for
+# (variance ratio 1.330, Levene p < 0.001) -- yet no sequence model in this project had
+# ever been shown it.
+#
+# The covariates are *time-varying*: there is a value of `is_rain` at each of the 24
+# past timestamps, not one value for the whole window. Flattening them to a single
+# static vector throws most of that away. So, following the covariate taxonomy that
+# DeepAR and the Temporal Fusion Transformer use, the design matrix is read as three
+# blocks: past covariates as extra channels over the window, covariates known at the
+# forecast origin, and static summaries.
+# --------------------------------------------------------------------------- #
+
+_COVARIATE_LAG_COLUMN = re.compile(r"^(?P<base>.+)__lagS_(?P<lag>\d+)$")
+
+#: Channel 0 is always demand, so a model that ignores every other channel degenerates
+#: exactly to the univariate reproduction above. That makes "do the covariates earn
+#: anything?" a measurable quantity rather than an assumption.
+DEMAND_CHANNEL = "demand"
+
+
+@dataclass(frozen=True)
+class ChannelWindow:
+    """A ``(n_rows, lookback, n_channels)`` view of a design matrix, plus the rest.
+
+    ``channels[0]`` is always :data:`DEMAND_CHANNEL`. ``static`` names the columns that
+    carry no lookback -- contemporaneous context flags, rolling statistics, and the
+    Fourier terms of the *target* timestamp, which are known at the forecast origin
+    because the clock is not something we have to predict.
+    """
+
+    channels: tuple[str, ...]
+    static: tuple[str, ...]
+    #: Column names per channel, oldest observation first.
+    columns: tuple[tuple[str, ...], ...]
+
+    @property
+    def n_channels(self) -> int:
+        return len(self.channels)
+
+    @property
+    def lookback(self) -> int:
+        return len(self.columns[0])
+
+    def window(self, X: pd.DataFrame) -> np.ndarray:
+        """Extract ``(n_rows, lookback, n_channels)`` in the stored column order."""
+        stacked = [np.asarray(X[list(cols)], dtype=float) for cols in self.columns]
+        return np.stack(stacked, axis=-1)
+
+    def static_block(self, X: pd.DataFrame) -> np.ndarray:
+        if not self.static:
+            return np.zeros((len(X), 0), dtype=float)
+        return np.asarray(X[list(self.static)], dtype=float)
+
+
+def channel_window(X: pd.DataFrame, lookback: int | None = None) -> ChannelWindow:
+    """Group a design matrix into one channel per covariate over the lookback.
+
+    Generalises :func:`lookback_columns`, which is left untouched so the univariate
+    reproduction path keeps working byte-for-byte. ``lagS_n`` becomes the demand
+    channel; ``{name}__lagS_n`` becomes a channel named ``{name}``; everything else is
+    static.
+
+    Raises if the channels disagree on depth or are not consecutive from 1 -- a model
+    fed a window with holes in it is silently modelling something other than a
+    contiguous history, and that failure is invisible in the RMSE.
+    """
+    demand: dict[int, str] = {}
+    covariates: dict[str, dict[int, str]] = {}
+    static: list[str] = []
+
+    for col in X.columns:
+        name = str(col)
+        m = _LAG_COLUMN.match(name)
+        if m:
+            demand[int(m.group(1))] = name
+            continue
+        m = _COVARIATE_LAG_COLUMN.match(name)
+        if m:
+            covariates.setdefault(m.group("base"), {})[int(m.group("lag"))] = name
+            continue
+        static.append(name)
+
+    if not demand:
+        raise ValueError(
+            "No lagS_* columns found. Sequence models need a demand lookback window; "
+            "build features with FeatureConfig(lag_samples=range(1, L+1))."
+        )
+
+    def ordered(found: dict[int, str], label: str) -> tuple[str, ...]:
+        lags = sorted(found)
+        if lags != list(range(1, len(lags) + 1)):
+            raise ValueError(
+                f"Channel {label!r} must carry consecutive lags 1..L; got {lags}."
+            )
+        # Oldest first: lag_L, ..., lag_1 is chronological order.
+        return tuple(found[n] for n in reversed(lags))
+
+    channels = [DEMAND_CHANNEL]
+    columns = [ordered(demand, DEMAND_CHANNEL)]
+    for base in sorted(covariates):
+        channels.append(base)
+        columns.append(ordered(covariates[base], base))
+
+    depth = len(columns[0])
+    mismatched = [c for c, cols in zip(channels, columns) if len(cols) != depth]
+    if mismatched:
+        raise ValueError(
+            f"Channels disagree on lookback depth: demand has {depth}, "
+            f"{mismatched} differ. Build every covariate at the same lags."
+        )
+    if lookback is not None and depth != lookback:
+        raise ValueError(
+            f"lookback={lookback} but the design matrix carries {depth} lags per "
+            f"channel. Build it with lag_samples=tuple(range(1, {lookback + 1}))."
+        )
+
+    return ChannelWindow(
+        channels=tuple(channels),
+        static=tuple(static),
+        columns=tuple(columns),
+    )
+
+
+def _build_covariate_module(kind: str, lookback: int, n_channels: int, n_static: int):
+    """The same four architectures, widened to read covariate channels.
+
+    The trunk is unchanged apart from its input width; the static block is concatenated
+    with the trunk's output before the dense head, which is how DeepAR admits covariates
+    alongside a recurrent state.
+    """
+    import torch
+    import torch.nn as nn
+
+    kind = kind.lower()
+
+    class CovariateNet(nn.Module):
+        def __init__(self):
+            super().__init__()
+            if kind == "cnn":
+                self.trunk = nn.Sequential(
+                    nn.Conv1d(n_channels, 64, kernel_size=3),
+                    nn.ReLU(),
+                    nn.Flatten(),
+                )
+                trunk_out = 64 * (lookback - 2)
+                self.recurrent = False
+            elif kind in ("lstm", "gru", "rnn"):
+                width = 50 if kind == "rnn" else 64   # SimpleRNN(50); LSTM(64); GRU(64)
+                cell = {"lstm": nn.LSTM, "gru": nn.GRU, "rnn": nn.RNN}[kind]
+                self.trunk = cell(
+                    input_size=n_channels, hidden_size=width, batch_first=True
+                )
+                trunk_out = width
+                self.recurrent = True
+            else:
+                raise ValueError(
+                    f"Unknown architecture {kind!r}; expected one of {ARCHITECTURES}."
+                )
+            self.out = nn.Linear(trunk_out + n_static, 1)
+
+        def forward(self, window, static):
+            if self.recurrent:
+                h, _ = self.trunk(window)              # (N, L, C) -> (N, L, W)
+                features = h[:, -1, :]
+            else:
+                features = self.trunk(window.transpose(1, 2))
+            if static.shape[1]:
+                features = torch.cat([features, static], dim=1)
+            return self.out(features)
+
+    return CovariateNet()
+
+
+def _fit_scaler(arr: np.ndarray, axis) -> tuple[np.ndarray, np.ndarray]:
+    """Mean and standard deviation over ``axis``, with constant columns left alone.
+
+    A context flag can be constant inside a short training window -- `is_rain` is zero
+    for most fold-0 windows -- and dividing by its zero standard deviation would put
+    NaN through the whole network.
+    """
+    mu = arr.mean(axis=axis, keepdims=True)
+    sd = arr.std(axis=axis, keepdims=True)
+    sd = np.where(sd > 1e-12, sd, 1.0)
+    return mu, sd
+
+
+@dataclass
+class CovariateSequenceForecaster(Forecaster):
+    """A sequence model that reads covariate channels, not only demand.
+
+    Identical to :class:`SequenceForecaster` in architecture, width and optimisation --
+    the only difference is what it is allowed to see. Running the two side by side on
+    one fold schedule therefore isolates the value of the covariates from everything
+    else, which is the question notebook 09 exists to answer.
+    """
+
+    kind: str = "lstm"
+    lookback: int = 24
+    epochs: int = 30
+    batch_size: int = 32
+    lr: float = 1e-3
+    seed: int = 42
+    name: str = ""
+
+    def __post_init__(self) -> None:
+        self.kind = self.kind.lower()
+        if self.kind not in ARCHITECTURES:
+            raise ValueError(
+                f"Unknown architecture {self.kind!r}; expected one of {ARCHITECTURES}."
+            )
+        if self.lookback < 3:
+            raise ValueError("lookback must be at least 3.")
+        self.name = self.name or f"{self.kind}_cov"
+        self._module = None
+        self._spec: ChannelWindow | None = None
+
+    def _tensors(self, X: pd.DataFrame):
+        spec = self._spec
+        assert spec is not None
+        w = (spec.window(X) - self._w_mu) / self._w_sd
+        s = spec.static_block(X)
+        if s.shape[1]:
+            s = (s - self._s_mu) / self._s_sd
+        return w, s
+
+    def fit(self, X: pd.DataFrame, y: pd.Series) -> "CovariateSequenceForecaster":
+        import torch
+
+        self._spec = channel_window(X, self.lookback)
+        w = self._spec.window(X)
+        s = self._spec.static_block(X)
+        ys = np.asarray(y, dtype=float).reshape(-1, 1)
+
+        # Per-channel scaling on the fitting window only. Per channel rather than
+        # globally because demand is ~100 Gbps and a context flag is 0/1; one shared
+        # scale would flatten the flags into numerical noise. Using test-block
+        # statistics here would leak the test distribution's location and scale, which
+        # is the subtler of the two leaks a sequence baseline usually has.
+        self._w_mu, self._w_sd = _fit_scaler(w, axis=(0, 1))
+        self._s_mu, self._s_sd = (
+            _fit_scaler(s, axis=0) if s.shape[1] else (None, None)
+        )
+        self._y_mu = ys.mean()
+        self._y_sd = ys.std() if ys.std() > 0 else 1.0
+
+        torch.manual_seed(self.seed)
+        self._module = _build_covariate_module(
+            self.kind, self._spec.lookback, self._spec.n_channels, len(self._spec.static)
+        )
+
+        wn, sn = self._tensors(X)
+        wt = torch.tensor(wn, dtype=torch.float32)
+        st = torch.tensor(sn, dtype=torch.float32)
+        yt = torch.tensor((ys - self._y_mu) / self._y_sd, dtype=torch.float32)
+
+        opt = torch.optim.Adam(self._module.parameters(), lr=self.lr)
+        loss_fn = torch.nn.MSELoss()
+        n = len(wt)
+        generator = torch.Generator().manual_seed(self.seed)
+
+        self._module.train()
+        for _ in range(self.epochs):
+            order = torch.randperm(n, generator=generator)
+            for start in range(0, n, self.batch_size):
+                idx = order[start : start + self.batch_size]
+                opt.zero_grad()
+                loss = loss_fn(self._module(wt[idx], st[idx]), yt[idx])
+                loss.backward()
+                opt.step()
+        return self
+
+    def predict(self, X: pd.DataFrame) -> np.ndarray:
+        import torch
+
+        if self._module is None:
+            raise RuntimeError(f"{self.name} is not fitted.")
+        wn, sn = self._tensors(X)
+        self._module.eval()
+        with torch.no_grad():
+            out = self._module(
+                torch.tensor(wn, dtype=torch.float32),
+                torch.tensor(sn, dtype=torch.float32),
+            ).numpy().ravel()
+        return out * self._y_sd + self._y_mu
+
+
+def covariate_sequence_models(lookback: int = 24, epochs: int = 30,
+                              seed: int = 42) -> list[CovariateSequenceForecaster]:
+    """The same four architectures, allowed to see the covariates."""
+    return [
+        CovariateSequenceForecaster(kind=k, lookback=lookback, epochs=epochs, seed=seed)
+        for k in ARCHITECTURES
+    ]
+
+
+def full_feature_config(lookback: int = 24, covariates: bool = True,
+                        context_flags: tuple[str, ...] | None = None):
+    """The full corrected design at full lag depth -- the opposite of the bare window.
+
+    This is ``FeatureConfig()``'s recommended defaults (wall-clock lags, rolling
+    statistics, Fourier terms and context flags) *plus* a dense demand window of
+    ``lookback`` consecutive sample lags, which ``run_sequence.py`` established as the
+    configuration that actually performs. With ``covariates=True`` each context flag and
+    daily harmonic also gets the same lookback, so a sequence model sees their history
+    rather than a single contemporaneous value.
+    """
+    from .features import FeatureConfig
+
+    lags = tuple(range(1, lookback + 1))
+    return FeatureConfig(
+        lag_samples=lags,
+        covariate_lag_samples=lags if covariates else (),
+        context_flags=context_flags,
+    )

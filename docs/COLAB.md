@@ -54,7 +54,7 @@ token at all.
 ## What Colab already has, and what it does not
 
 Colab ships with `numpy`, `pandas`, `matplotlib`, `scikit-learn`, `statsmodels`,
-`xgboost`, `lightgbm` and `torch`, which covers notebooks 00–05, 07 and 08 with no
+`xgboost`, `lightgbm` and `torch`, which covers notebooks 00–05 and 07–12 with no
 installation at all.
 
 Only **notebook 06 (zero-shot foundation models)** needs something extra:
@@ -68,8 +68,8 @@ seven minutes — a GPU runtime is not required and will not help much at this s
 length.
 
 Nothing here needs a GPU. The heaviest work is scikit-learn's random forest, which is
-CPU-bound, and the sequence models in notebook 08 are small enough that a CPU runtime
-finishes them in a couple of minutes.
+CPU-bound, and the sequence models in notebooks 08-10 are small enough that a CPU
+runtime finishes them in a few minutes.
 
 ## Which notebook to open first
 
@@ -84,6 +84,10 @@ finishes them in a couple of minutes.
 | `06_foundation_models` | Zero-shot Chronos-Bolt, and when it fails | ~7 min + install |
 | `07_paper_figures` | Regenerates every paper figure from stored results | seconds |
 | `08_sequence_models` | CNN / RNN / LSTM / GRU against the trees; lag depth | ~4 min |
+| `09_full_feature_models` | Lifting the univariate constraint: covariates as channels | ~12 min |
+| `10_modern_architectures` | TCN, Transformer, DLinear/NLinear, N-BEATS/NBEATSx | ~15 min |
+| `11_hyperparameter_tuning` | Reads the search results; what tuning was worth | seconds |
+| `12_final_comparison` | Every model, default and tuned, on one fold schedule | seconds |
 
 `00` and `07` are the two to open if you only want to look at something. `07` reads
 only from `experiments/results/`, so it draws every figure in the paper without

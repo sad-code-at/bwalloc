@@ -24,7 +24,7 @@ internet; if you cannot, see [No internet?](#no-internet) below.
 Right-hand sidebar → **Settings → Accelerator → None**.
 
 Nothing here benefits from a GPU. The heaviest step is scikit-learn's random forest,
-which is CPU-bound, and the sequence models in notebook 08 are small. A GPU session only
+which is CPU-bound, and the sequence models in notebooks 08-10 are small. A GPU session only
 spends your weekly quota.
 
 ### 4. Run the first cell
@@ -51,7 +51,7 @@ results are under `experiments/results/`.
 
 A Kaggle notebook is a **single document**, not a workspace. The GitHub import copies
 *one* `.ipynb` onto Kaggle's servers; there is no "open this repository" that gives you
-all nine. That is why importing one notebook at a time works and there is no bulk
+all thirteen. That is why importing one notebook at a time works and there is no bulk
 equivalent. Colab behaves the same way.
 
 Two separate things are therefore in play:
@@ -71,7 +71,7 @@ which is what the running code actually uses. To pick up a change to a notebook
 
 Every notebook is committed **with its outputs**, so
 [the `notebooks/` folder on GitHub](https://github.com/sad-code-at/bwalloc/tree/main/notebooks)
-renders all nine with their tables and figures, no session required.
+renders all thirteen with their tables and figures, no session required.
 
 ---
 
@@ -147,7 +147,7 @@ or made public later.
 ## What Kaggle already has
 
 Kaggle's Python image ships `numpy`, `pandas`, `matplotlib`, `scikit-learn`, `scipy`,
-`statsmodels`, `xgboost`, `lightgbm` and `torch`. That covers notebooks 00–05, 07 and 08
+`statsmodels`, `xgboost`, `lightgbm` and `torch`. That covers notebooks 00–05 and 07–12
 with nothing to install.
 
 Only **notebook 06 (zero-shot foundation models)** needs an extra package:
@@ -169,8 +169,12 @@ Only **notebook 06 (zero-shot foundation models)** needs an extra package:
 | `06_foundation_models` | Zero-shot Chronos-Bolt, and when it fails | ~7 min + install |
 | `07_paper_figures` | Regenerates every paper figure from stored results | seconds |
 | `08_sequence_models` | CNN / RNN / LSTM / GRU against the trees; lag depth | ~4 min |
+| `09_full_feature_models` | Lifting the univariate constraint: covariates as channels | ~12 min |
+| `10_modern_architectures` | TCN, Transformer, DLinear/NLinear, N-BEATS/NBEATSx | ~15 min |
+| `11_hyperparameter_tuning` | Reads the search results; what tuning was worth | seconds |
+| `12_final_comparison` | Every model, default and tuned, on one fold schedule | seconds |
 
-All nine together sit well inside Kaggle's 12-hour session limit. `04_multi_horizon` is
+All thirteen together sit well inside Kaggle's 12-hour session limit. `04_multi_horizon` is
 the only one long enough to be worth starting and leaving.
 
 Every notebook is committed **with its outputs**, so you can read all of them on GitHub

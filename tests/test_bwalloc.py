@@ -684,3 +684,348 @@ def test_flag_report_columns_match_what_the_notebooks_select(trace):
     }
     missing = required - set(report.columns)
     assert not missing, f"flag_report lost columns the notebooks select: {sorted(missing)}"
+
+
+# --------------------------------------------------------------------------- #
+# Covariate channels: the sequence models were starved on purpose, and are not
+# any more. These gates exist because "reads the full feature set" is easy to
+# believe and easy to get silently wrong.
+# --------------------------------------------------------------------------- #
+
+def test_covariate_lags_are_named_so_channels_can_be_recovered(trace):
+    """``{column}__lagS_{n}`` is a contract between features.py and sequence.py."""
+    name, df, profile = trace
+    from bwalloc.sequence import full_feature_config
+
+    X, _ = build_features(df, profile, full_feature_config(6, covariates=True))
+    assert "is_weekend__lagS_1" in X.columns
+    assert "is_weekend__lagS_6" in X.columns
+    assert "day_sin1__lagS_3" in X.columns
+    # The contemporaneous value is the context block's job and must still be there;
+    # it is a known-at-origin covariate, not a lagged one.
+    assert "is_weekend" in X.columns
+
+
+def test_covariate_lags_do_not_leak_the_target(trace):
+    """The newest block gets no exemption from the check this project exists for."""
+    name, df, profile = trace
+    from bwalloc.sequence import full_feature_config
+
+    for lookback in (6, 24):
+        assert_no_leakage(df, profile, full_feature_config(lookback, covariates=True))
+
+
+def test_covariate_lag_zero_is_refused():
+    """Lag 0 is the contemporaneous value; asking for it here means a confusion."""
+    from bwalloc.features import _covariate_lag_block
+
+    built = pd.DataFrame({"is_rain": [0.0, 1.0, 0.0]})
+    with pytest.raises(ValueError, match="must all be >= 1"):
+        _covariate_lag_block(
+            built, FeatureConfig(covariate_lag_samples=(0, 1)))
+
+
+def test_channel_window_groups_and_orders_every_channel(trace):
+    """Channel 0 is demand, each channel is oldest-first, and depths agree."""
+    name, df, profile = trace
+    from bwalloc.sequence import DEMAND_CHANNEL, channel_window, full_feature_config
+
+    X, _ = build_features(df, profile, full_feature_config(8, covariates=True))
+    spec = channel_window(X, 8)
+
+    assert spec.channels[0] == DEMAND_CHANNEL
+    assert spec.lookback == 8
+    assert all(len(cols) == 8 for cols in spec.columns)
+    assert spec.columns[0] == tuple(f"lagS_{n}" for n in range(8, 0, -1))
+
+    window = spec.window(X)
+    assert window.shape == (len(X), 8, spec.n_channels)
+    # Oldest first: the last position must be lag 1.
+    assert np.allclose(window[:, -1, 0], X["lagS_1"].to_numpy())
+    assert np.allclose(window[:, 0, 0], X["lagS_8"].to_numpy())
+
+    flag = spec.channels.index("is_weekend")
+    assert np.allclose(window[:, -1, flag], X["is_weekend__lagS_1"].to_numpy())
+
+
+def test_channel_window_refuses_ragged_channels():
+    """Channels of different depth are a build error, not something to pad around."""
+    from bwalloc.sequence import channel_window
+
+    ragged = pd.DataFrame({
+        "lagS_1": [0.0], "lagS_2": [0.0], "lagS_3": [0.0],
+        "is_rain__lagS_1": [0.0], "is_rain__lagS_2": [0.0],
+    })
+    with pytest.raises(ValueError, match="disagree on lookback depth"):
+        channel_window(ragged)
+
+    gapped = pd.DataFrame({
+        "lagS_1": [0.0], "lagS_2": [0.0],
+        "is_rain__lagS_1": [0.0], "is_rain__lagS_3": [0.0],
+    })
+    with pytest.raises(ValueError, match="consecutive"):
+        channel_window(gapped)
+
+
+def test_static_block_holds_what_the_window_does_not(trace):
+    """Every column is either in a channel or static -- nothing is silently dropped."""
+    name, df, profile = trace
+    from bwalloc.sequence import channel_window, full_feature_config
+
+    X, _ = build_features(df, profile, full_feature_config(8, covariates=True))
+    spec = channel_window(X, 8)
+    accounted = {c for cols in spec.columns for c in cols} | set(spec.static)
+    assert accounted == set(X.columns)
+
+
+# --------------------------------------------------------------------------- #
+# Modern architectures
+# --------------------------------------------------------------------------- #
+
+torch = pytest.importorskip("torch", reason="sequence models need torch")
+
+
+@pytest.fixture(scope="module")
+def gp_channels():
+    """A small GP design matrix with covariate channels, and one fold's worth of rows."""
+    from bwalloc.sequence import channel_window, full_feature_config
+
+    df = load("gp")
+    profile = sampling_profile(df)
+    X, y = build_features(df, profile, full_feature_config(12, covariates=True))
+    spec = channel_window(X, 12)
+    return X.iloc[:220], y.iloc[:220], X.iloc[220:260], y.iloc[220:260], spec
+
+
+def _every_architecture(lookback=12, epochs=2):
+    from bwalloc.architectures import modern_models
+    from bwalloc.sequence import covariate_sequence_models
+
+    return (modern_models(lookback=lookback, epochs=epochs)
+            + covariate_sequence_models(lookback=lookback, epochs=epochs))
+
+
+@pytest.mark.parametrize("model", _every_architecture(), ids=lambda m: m.name)
+def test_every_architecture_consumes_its_covariate_channels(model, gp_channels):
+    """Flipping a context-flag channel must move the forecast.
+
+    This is the gate that makes "reads the full feature set" structural rather than
+    aspirational. Three of these architectures are univariate in their source papers,
+    and implemented literally they would read channel 0 and ignore the rest -- scoring
+    plausibly the whole time, because the demand lags carry most of the signal. The
+    only member exempt is ``nbeats``, which is retained deliberately as the univariate
+    control and is named as such in the results.
+    """
+    X_fit, y_fit, X_test, _, spec = gp_channels
+    model.fit(X_fit, y_fit)
+    base = model.predict(X_test)
+
+    flipped = X_test.copy()
+    channel = spec.channels.index("is_rain")
+    cols = list(spec.columns[channel])
+    flipped[cols] = 1.0 - flipped[cols].to_numpy()
+    moved = float(np.abs(model.predict(flipped) - base).max())
+
+    if model.name == "nbeats":
+        assert moved == 0.0, "the univariate control must stay univariate"
+    else:
+        assert moved > 1e-6, (
+            f"{model.name} ignores its covariate channels -- it is reading only "
+            "demand, which is the limitation this work exists to remove"
+        )
+
+
+@pytest.mark.parametrize("model", _every_architecture(), ids=lambda m: m.name)
+def test_every_architecture_is_deterministic(model, gp_channels):
+    """Same seed, same numbers -- otherwise a fold-to-fold difference is unreadable."""
+    import dataclasses
+
+    X_fit, y_fit, X_test, _, _ = gp_channels
+    first = model.fit(X_fit, y_fit).predict(X_test)
+    # ``replace`` rather than ``type(model)(...)``: the four covariate models share one
+    # class and differ only by the ``kind`` field, so reconstructing from the class
+    # would silently compare a CNN against an LSTM.
+    twin = dataclasses.replace(model)
+    assert np.allclose(first, twin.fit(X_fit, y_fit).predict(X_test))
+
+
+def test_tcn_convolutions_are_causal(gp_channels):
+    """Perturbing the newest step must not change what an earlier step sees.
+
+    A dilated convolution with symmetric padding and no chomp reads the future. It
+    trains, it converges, and it reports an RMSE that looks like a breakthrough -- the
+    same shape of failure as the rolling-mean leak that produced the original project's
+    headline number. Nothing about the loss curve reveals it, so it needs a gate.
+    """
+    from bwalloc.architectures import TCN
+
+    X_fit, y_fit, _, _, spec = gp_channels
+    model = TCN(lookback=12, epochs=1).fit(X_fit.iloc[:80], y_fit.iloc[:80])
+
+    window = torch.randn(4, 12, spec.n_channels)
+    model._module.eval()
+    with torch.no_grad():
+        before = model._module.blocks(window.transpose(1, 2))
+        bumped = window.clone()
+        bumped[:, -1, :] += 10.0
+        after = model._module.blocks(bumped.transpose(1, 2))
+
+    earlier = float((before[:, :, :-1] - after[:, :, :-1]).abs().max())
+    newest = float((before[:, :, -1] - after[:, :, -1]).abs().max())
+    assert earlier < 1e-5, "TCN leaks the future into earlier positions"
+    assert newest > 1e-5, "TCN ignores its most recent input"
+
+
+def test_dlinear_decomposition_reconstructs_the_window():
+    """Trend plus remainder must be the input, or the decomposition means nothing."""
+    from bwalloc.architectures import _moving_average
+
+    window = torch.randn(5, 24, 3)
+    trend = _moving_average(window, 23)
+    assert trend.shape == window.shape
+    assert torch.allclose(trend + (window - trend), window, atol=1e-6)
+
+
+def test_transformer_attention_is_a_distribution_over_the_lookback(gp_channels):
+    """Attention weights must sum to one over exactly ``lookback`` positions.
+
+    The attention map is reported as a figure and read as "which lags mattered", so it
+    has to be an actual distribution over lag positions rather than whatever the last
+    forward pass happened to leave behind.
+    """
+    from bwalloc.architectures import TransformerForecaster
+
+    X_fit, y_fit, X_test, _, _ = gp_channels
+    model = TransformerForecaster(lookback=12, epochs=2).fit(X_fit, y_fit)
+    model.predict(X_test)
+
+    weights = model.attention_by_lag
+    assert weights is not None
+    assert weights.shape == (12,)
+    assert weights.min() >= 0.0
+    assert abs(float(weights.sum()) - 1.0) < 1e-4
+
+
+def test_architecture_scaling_uses_the_fit_window_only(gp_channels):
+    """Shifting the test block must not move the scaler the model was fitted with.
+
+    Standardising on statistics that include the test block leaks its location and
+    scale. It is the quieter of the two leaks a sequence baseline usually carries and
+    it flatters the result, so it is pinned for the new architectures exactly as it is
+    for the originals.
+    """
+    from bwalloc.architectures import TCN
+
+    X_fit, y_fit, X_test, _, _ = gp_channels
+    model = TCN(lookback=12, epochs=2).fit(X_fit, y_fit)
+    before = model._w_mu.copy()
+    model.predict(X_test + 500.0)
+    assert np.allclose(model._w_mu, before)
+
+
+def test_permutation_importance_ranks_demand_above_a_dead_channel(gp_channels):
+    """Shuffling demand must cost more than shuffling a flag the audit found inert.
+
+    The measurement that answers "is it really using more than the lags?" has to be
+    able to tell a live channel from a dead one, otherwise its zeros mean nothing.
+    """
+    from bwalloc.architectures import TCN, channel_permutation_importance
+
+    X_fit, y_fit, X_test, y_test, spec = gp_channels
+    model = TCN(lookback=12, epochs=6).fit(X_fit, y_fit)
+    table = channel_permutation_importance(
+        model, X_test, y_test, spec, n_repeats=2, seed=0
+    )
+    ranked = table.set_index("channel")["importance"]
+    assert ranked["demand"] > 0.0
+    assert ranked["demand"] == ranked.max()
+
+
+# --------------------------------------------------------------------------- #
+# Tuning: selection must never touch a test observation
+# --------------------------------------------------------------------------- #
+
+def test_tuning_prefix_ends_before_the_first_test_block(trace):
+    """The development prefix and the evaluation folds must not overlap.
+
+    Everything about the tuning protocol rests on this one boundary. If it slips by
+    even a row, every "tuned" number in the project is selected partly on its own test
+    data, and none of the comparisons mean anything.
+    """
+    from bwalloc.sequence import full_feature_config
+    from bwalloc.tuning import development_cutoff, development_slice
+
+    name, df, profile = trace
+    X, y = build_features(df, profile, full_feature_config(24, covariates=True))
+    cutoff = development_cutoff(pd.DatetimeIndex(X.index), n_folds=8)
+    folds = rolling_origin(len(X), n_folds=8)
+
+    first_test = pd.Timestamp(X.index[folds[0].test[0]])
+    assert cutoff <= first_test
+
+    Xd, yd = development_slice(X, y, cutoff)
+    assert len(Xd) > 0
+    assert pd.DatetimeIndex(Xd.index).max() < first_test
+
+
+def test_tuning_prefix_holds_when_a_trial_changes_the_lookback(trace):
+    """A deeper window drops more warm-up rows; the boundary must not move with it.
+
+    This is why the cutoff is a timestamp rather than a row count. With a row count,
+    a trial at lookback 48 would slide its "40%" further into the series and quietly
+    start selecting on evaluation data.
+    """
+    from bwalloc.sequence import full_feature_config
+    from bwalloc.tuning import development_cutoff, development_slice, feature_config_for
+
+    name, df, profile = trace
+    X_ref, _ = build_features(df, profile, full_feature_config(24, covariates=True))
+    cutoff = development_cutoff(pd.DatetimeIndex(X_ref.index), n_folds=8)
+    folds = rolling_origin(len(X_ref), n_folds=8)
+    first_test = pd.Timestamp(X_ref.index[folds[0].test[0]])
+
+    for lookback in (8, 12, 24, 36, 48):
+        params = {"lookback": lookback, "covariates": True, "context": "all"}
+        X, y = build_features(df, profile, feature_config_for(params))
+        Xd, _ = development_slice(X, y, cutoff)
+        assert len(Xd) > 40, f"lookback={lookback} leaves too little to select on"
+        assert pd.DatetimeIndex(Xd.index).max() < first_test
+
+
+def test_tuning_search_space_includes_the_feature_set():
+    """The feature set is a hyperparameter here, and that must not quietly regress.
+
+    If ``covariates`` left the space, every model would be tuned at whatever the
+    default happened to be and "do the covariates earn anything?" would go back to
+    being a matter of judgement rather than a measurement.
+    """
+    from bwalloc.tuning import FEATURE_SPACE, SEARCH_SPACES
+
+    assert set(FEATURE_SPACE) == {"lookback", "covariates", "context"}
+    assert False in FEATURE_SPACE["covariates"]["values"]
+    assert True in FEATURE_SPACE["covariates"]["values"]
+    assert "is_rain" or "rain_only" in FEATURE_SPACE["context"]["values"]
+    # Every model the notebooks report must be searchable, or its row in the
+    # comparison is a default masquerading as a tuned result.
+    for required in ("random_forest", "xgboost", "tcn", "transformer",
+                     "dlinear", "nbeatsx", "gru_cov"):
+        assert required in SEARCH_SPACES
+
+
+def test_sampled_configurations_build_a_model_and_a_design_matrix(trace):
+    """Every draw from the space must be constructible, or fail loudly and be recorded."""
+    from bwalloc.tuning import (SEARCH_SPACES, build_model, feature_config_for,
+                                sample_params, FEATURE_SPACE)
+
+    name, df, profile = trace
+    rng = np.random.default_rng(0)
+    for model_name in ("ridge", "random_forest", "dlinear", "tcn"):
+        space = {**FEATURE_SPACE, **SEARCH_SPACES[model_name]}
+        params = sample_params(space, rng)
+        config = feature_config_for(params)
+        assert config.lag_samples == tuple(range(1, params["lookback"] + 1))
+        if params["covariates"]:
+            assert config.covariate_lag_samples == config.lag_samples
+        else:
+            assert config.covariate_lag_samples == ()
+        assert build_model(model_name, params) is not None

@@ -61,6 +61,15 @@ class FeatureConfig:
     context_flags: tuple[str, ...] | None = None
     #: Include context flags at all.
     use_context: bool = True
+    #: Sample lags at which to ALSO build the exogenous columns, giving each
+    #: covariate a history rather than a single contemporaneous value. A sequence
+    #: model reading a 24-step window sees 24 timestamps, and `is_rain` has a value
+    #: at each of them; collapsing that to one number discards most of the signal.
+    #: Empty (the default) reproduces the original flat design exactly.
+    covariate_lag_samples: tuple[int, ...] = ()
+    #: Which columns to lag. None means "every context flag present, plus the daily
+    #: Fourier terms" -- the two blocks that genuinely vary within a window.
+    covariate_columns: tuple[str, ...] | None = None
 
 
 def fourier_terms(index: pd.DatetimeIndex, period_seconds: float, n_harmonics: int,
@@ -107,6 +116,44 @@ def _rolling_block(y: pd.Series, profile: SamplingProfile,
         out[f"rollmean_{hours:g}h"] = shifted.rolling(window).mean()
         out[f"rollstd_{hours:g}h"] = shifted.rolling(window).std()
     return pd.DataFrame(out, index=y.index)
+
+
+def _covariate_lag_block(built: pd.DataFrame, config: FeatureConfig) -> pd.DataFrame:
+    """Lagged copies of the exogenous columns, so each covariate carries a history.
+
+    Every column here is produced by ``.shift(n)`` with ``n >= 1`` on a column that is
+    itself already leak-safe, so :func:`assert_no_leakage` covers this block with no
+    special case -- which is deliberate. The bug class this project exists to fix was a
+    feature that quietly read its own target, and the check that catches it must not
+    have an exemption carved out for the newest block.
+
+    Named ``{column}__lagS_{n}`` so :func:`bwalloc.sequence.channel_window` can group
+    them back into one channel per covariate without guessing.
+    """
+    if config.covariate_columns is not None:
+        wanted = [c for c in config.covariate_columns if c in built.columns]
+    else:
+        # The two blocks that actually vary across a lookback window. Rolling
+        # statistics are already backward-looking summaries and lagging them again
+        # mostly duplicates the demand lags; weekly harmonics are near-constant over
+        # 24 samples (1.4 days on GP) and would add channels carrying no variation.
+        wanted = [
+            c for c in built.columns
+            if c.startswith("is_") or c == "event" or c.startswith("day_")
+        ]
+    if not wanted:
+        return pd.DataFrame(index=built.index)
+
+    lags = sorted(set(int(n) for n in config.covariate_lag_samples))
+    if lags and lags[0] < 1:
+        raise ValueError(
+            "covariate_lag_samples must all be >= 1; lag 0 is the contemporaneous "
+            "value, which the context block already provides."
+        )
+    return pd.DataFrame(
+        {f"{col}__lagS_{n}": built[col].shift(n) for col in wanted for n in lags},
+        index=built.index,
+    )
 
 
 def build_features(
@@ -173,6 +220,14 @@ def build_features(
         present = [f for f in flags if f in df.columns]
         if present:
             blocks.append(df[present].astype(float))
+
+    if config.covariate_lag_samples:
+        blocks.append(
+            _covariate_lag_block(
+                pd.concat(blocks, axis=1) if blocks else pd.DataFrame(index=index),
+                config,
+            )
+        )
 
     if not blocks:
         raise ValueError("FeatureConfig produced no features.")
